@@ -12,215 +12,7 @@
     <script src="https://unpkg.com/vditor@3.10.4/dist/index.min.js"></script>
     <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-primary: #f9fafb;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f3f4f6;
-            --text-primary: #111827;
-            --text-secondary: #374151;
-            --text-tertiary: #6b7280;
-            --border-color: #e5e7eb;
-            --accent-color: #3b82f6;
-            --accent-hover: #2563eb;
-            --success-color: #10b981;
-            --purple-color: #8b5cf6;
-        }
-        [data-theme="dark"] {
-            --bg-primary: #1a1a2e;
-            --bg-secondary: #16213e;
-            --bg-tertiary: #0f3460;
-            --text-primary: #e2e8f0;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #94a3b8;
-            --border-color: #334155;
-            --accent-color: #60a5fa;
-            --accent-hover: #3b82f6;
-        }
-        [data-theme="purple"] {
-            --bg-primary: #1e1b2e;
-            --bg-secondary: #2d2640;
-            --bg-tertiary: #3d3555;
-            --text-primary: #e8e4f0;
-            --text-secondary: #c4bcd8;
-            --text-tertiary: #9a8fb8;
-            --border-color: #4a3f66;
-            --accent-color: #a78bfa;
-            --accent-hover: #8b5cf6;
-        }
-        [data-theme="green"] {
-            --bg-primary: #f0fdf4;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #dcfce7;
-            --text-primary: #14532d;
-            --text-secondary: #166534;
-            --text-tertiary: #4ade80;
-            --border-color: #bbf7d0;
-            --accent-color: #22c55e;
-            --accent-hover: #16a34a;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: var(--bg-primary); color: var(--text-secondary); line-height: 1.6; font-weight: 400; transition: background-color 0.3s ease, color 0.3s ease; }
-        .navbar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: var(--bg-secondary); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--border-color); height: 64px; transition: background-color 0.3s ease, border-color 0.3s ease; }
-        .navbar-content { max-width: 1600px; margin: 0 auto; padding: 0 24px; height: 100%; display: flex; align-items: center; justify-content: space-between; }
-        .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: var(--text-primary); transition: color 0.3s ease; }
-        .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent-color) 0%, var(--purple-color) 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
-        .nav-actions { display: flex; align-items: center; gap: 8px; }
-        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s ease; border: none; outline: none; }
-        .btn-primary { background: var(--accent-color); color: white; }
-        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-        .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); }
-        .btn-secondary:hover { background: var(--border-color); transform: translateY(-1px); }
-        .btn-success { background: var(--success-color); color: white; }
-        .btn-success:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); }
-        .btn-ghost { background: transparent; color: var(--text-tertiary); }
-        .btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
-        .btn-sm { padding: 6px 12px; font-size: 12px; }
-        .main-container { display: flex; padding-top: 64px; min-height: 100vh; }
-        .sidebar { width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border-color); height: calc(100vh - 64px); position: fixed; left: 0; top: 64px; display: flex; flex-direction: column; transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease; z-index: 40; }
-        .sidebar.collapsed { transform: translateX(-280px); }
-        .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border-color); }
-        .sidebar-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
-        .sidebar-actions { display: flex; gap: 8px; }
-        .sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
-        .sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--border-color); background: var(--bg-tertiary); }
-        .file-tree { font-size: 13px; user-select: none; }
-        .tree-item { padding: 6px 10px; cursor: pointer; display: flex; align-items: center; border-radius: 8px; margin: 2px 0; transition: all 0.15s ease; }
-        .tree-item:hover { background: var(--bg-tertiary); }
-        .tree-item.selected { background: rgba(59, 130, 246, 0.1); color: var(--accent-color); }
-        .tree-item.editing { background: rgba(16, 185, 129, 0.1); color: var(--success-color); }
-        .tree-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; margin-right: 6px; flex-shrink: 0; color: var(--text-tertiary); }
-        .tree-item.selected .tree-icon { color: var(--accent-color); }
-        .tree-toggle { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-right: 2px; cursor: pointer; color: var(--text-tertiary); flex-shrink: 0; font-size: 10px; transition: transform 0.2s ease; }
-        .tree-toggle:hover { color: var(--accent-color); }
-        .tree-toggle.expanded { transform: rotate(90deg); }
-        .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tree-actions { opacity: 0; transition: opacity 0.15s ease; display: flex; align-items: center; gap: 2px; }
-        .tree-item:hover .tree-actions { opacity: 1; }
-        .tree-action-btn { padding: 4px 6px; color: var(--text-tertiary); cursor: pointer; border-radius: 4px; transition: all 0.15s ease; }
-        .tree-action-btn:hover { color: var(--accent-color); background: var(--bg-tertiary); }
-        .tree-action-btn.delete:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
-        .tree-children { overflow: hidden; }
-        .file-size { font-size: 11px; color: var(--text-tertiary); margin-left: 8px; }
-        .main-content { flex: 1; margin-left: 280px; min-height: calc(100vh - 64px); transition: margin-left 0.3s ease; }
-        .main-content.expanded { margin-left: 0; }
-        .content-area { padding: 24px; max-width: 1200px; margin: 0 auto; }
-        .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: var(--bg-secondary); border-radius: 12px; padding: 20px; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.02), 0 2px 6px rgba(0, 0, 0, 0.03); display: flex; align-items: center; gap: 16px; transition: all 0.2s ease; }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04), 0 4px 10px rgba(0, 0, 0, 0.05); }
-        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
-        .stat-icon.blue { background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.2) 100%); color: var(--accent-color); }
-        .stat-icon.green { background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.2) 100%); color: var(--success-color); }
-        .stat-icon.purple { background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.2) 100%); color: var(--purple-color); }
-        .stat-content h3 { font-size: 24px; font-weight: 600; color: var(--text-primary); line-height: 1.2; }
-        .stat-content p { font-size: 13px; color: var(--text-tertiary); margin-top: 2px; }
-        .editor-container { background: var(--bg-secondary); border-radius: 12px; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.02), 0 2px 6px rgba(0, 0, 0, 0.03); overflow: visible; height: calc(100vh - 160px); display: flex; flex-direction: column; transition: background-color 0.3s ease; }
-        .editor-header { padding: 12px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; background: var(--bg-tertiary); position: relative; z-index: 1; }
-        .editor-file-info { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-tertiary); }
-        .editor-file-path { font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace; font-size: 12px; background: var(--bg-secondary); padding: 4px 8px; border-radius: 4px; }
-        .editor-content { flex: 1; overflow: visible; position: relative; }
-        .vditor { height: 100%; display: flex; flex-direction: column; border-radius: 0 0 12px 12px; overflow: visible; }
-        .vditor-content { overflow: hidden; flex: 1; }
-        #vditor { height: 100%; border: none; }
-        .vditor-toolbar { border-bottom: 1px solid var(--border-color); background: var(--bg-tertiary); padding: 8px 12px; overflow: visible; position: relative; z-index: 50; }
-        .vditor-toolbar__item { overflow: visible; }
-        .vditor-tooltipped::after, .vditor-tooltipped::before { position: absolute !important; }
-        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-tertiary); text-align: center; padding: 40px; }
-        .empty-state h3 { font-size: 18px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
-        .empty-state p { font-size: 14px; color: var(--text-tertiary); }
-        .side-panel { position: fixed; top: 64px; right: 0; width: 400px; height: calc(100vh - 64px); background: var(--bg-secondary); box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08); z-index: 100; transform: translateX(100%); transition: transform 0.3s ease, background-color 0.3s ease; display: flex; flex-direction: column; }
-        .side-panel.open { transform: translateX(0); }
-        .side-panel-header { padding: 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-        .side-panel-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
-        .side-panel-close { cursor: pointer; color: var(--text-tertiary); transition: color 0.15s ease; }
-        .side-panel-close:hover { color: var(--text-secondary); }
-        .side-panel-content { padding: 20px; overflow-y: auto; flex: 1; }
-        .form-group { margin-bottom: 20px; }
-        .form-label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
-        .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; transition: all 0.15s ease; background: var(--bg-secondary); color: var(--text-primary); }
-        .form-input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-        .form-textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; min-height: 150px; resize: vertical; transition: all 0.15s ease; font-family: inherit; background: var(--bg-secondary); color: var(--text-primary); }
-        .form-textarea:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-        .form-hint { font-size: 12px; color: var(--text-tertiary); margin-top: 6px; }
-        .form-actions { display: flex; gap: 8px; margin-top: 24px; }
-        .context-menu { position: fixed; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1); z-index: 1000; min-width: 180px; padding: 6px; border: 1px solid var(--border-color); }
-        .context-menu-item { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; border-radius: 6px; transition: all 0.15s ease; color: var(--text-secondary); }
-        .context-menu-item:hover { background: var(--bg-tertiary); }
-        .context-menu-item.danger { color: #ef4444; }
-        .context-menu-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
-        .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.2); z-index: 90; backdrop-filter: blur(2px); }
-        .changes-list { list-style: none; padding: 0; margin: 0; }
-        .changes-list li { padding: 12px; border-bottom: 1px solid var(--border-color); font-size: 13px; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
-        .changes-list li:last-child { border-bottom: none; }
-        .change-icon { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; }
-        .change-icon.modified { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
-        .loading { display: flex; align-items: center; justify-content: center; height: 200px; }
-        .loading-spinner { width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--accent-color); border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .toast { position: fixed; top: 80px; right: 24px; padding: 12px 20px; border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1); z-index: 200; display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; transform: translateX(120%); transition: transform 0.3s ease; }
-        .toast.show { transform: translateX(0); }
-        .toast.success { background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); }
-        .toast.error { background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.2); }
-        .toast.info { background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.2); }
-        .sidebar-toggle { position: fixed; left: 280px; top: 80px; width: 24px; height: 24px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 45; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); color: var(--text-tertiary); }
-        .sidebar-toggle:hover { background: var(--bg-tertiary); }
-        .sidebar-toggle.collapsed { left: 12px; }
-        .current-path-indicator { font-size: 12px; color: var(--text-tertiary); background: var(--bg-tertiary); padding: 6px 10px; border-radius: 6px; margin-bottom: 12px; }
-        @media (max-width: 1024px) {
-            .stats-row { grid-template-columns: 1fr; }
-            .sidebar { transform: translateX(-280px); }
-            .sidebar.open-mobile { transform: translateX(0); }
-            .main-content { margin-left: 0; }
-            .sidebar-toggle { left: 12px; }
-        }
-        @media (max-width: 640px) {
-            .navbar-content { padding: 0 16px; }
-            .nav-actions { gap: 4px; }
-            .btn { padding: 6px 12px; font-size: 12px; }
-            .side-panel { width: 100%; }
-        }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.4); z-index: 150; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-        .modal { background: var(--bg-secondary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); max-width: 420px; width: 90%; overflow: hidden; animation: modalIn 0.2s ease; }
-        @keyframes modalIn { from { opacity: 0; transform: scale(0.95) translateY(-10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-        .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px; }
-        .modal-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
-        .modal-icon.warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.2) 100%); color: #f59e0b; }
-        .modal-icon.danger { background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.2) 100%); color: #ef4444; }
-        .modal-icon.info { background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.2) 100%); color: var(--accent-color); }
-        .modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
-        .modal-body { padding: 20px 24px; }
-        .modal-message { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
-        .modal-details { margin-top: 12px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; font-size: 13px; color: var(--text-tertiary); }
-        .modal-details ul { margin: 8px 0 0 0; padding-left: 16px; }
-        .modal-details li { margin: 4px 0; }
-        .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px; background: var(--bg-tertiary); }
-        .theme-selector { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 8px; }
-        .theme-option { padding: 12px; border: 2px solid var(--border-color); border-radius: 10px; cursor: pointer; transition: all 0.2s ease; text-align: center; }
-        .theme-option:hover { border-color: var(--accent-color); transform: translateY(-2px); }
-        .theme-option.active { border-color: var(--accent-color); background: rgba(59, 130, 246, 0.05); }
-        .theme-option-preview { width: 100%; height: 40px; border-radius: 6px; margin-bottom: 8px; }
-        .theme-option-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-        .code-theme-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
-        .code-theme-option { padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; transition: all 0.2s ease; text-align: center; font-size: 12px; color: var(--text-secondary); }
-        .code-theme-option:hover { border-color: var(--accent-color); }
-        .code-theme-option.active { border-color: var(--accent-color); background: rgba(59, 130, 246, 0.05); color: var(--accent-color); }
-        .editor-mode-selector { display: flex; gap: 8px; margin-top: 8px; }
-        .editor-mode-option { flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; text-align: center; font-size: 13px; color: var(--text-secondary); }
-        .editor-mode-option:hover { border-color: var(--accent-color); }
-        .editor-mode-option.active { border-color: var(--accent-color); background: rgba(59, 130, 246, 0.05); color: var(--accent-color); }
-        .export-buttons { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-        .export-btn { flex: 1; min-width: 120px; padding: 10px 16px; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; transition: all 0.2s ease; text-align: center; font-size: 13px; color: var(--text-secondary); background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .export-btn:hover { border-color: var(--accent-color); transform: translateY(-1px); }
-        .export-btn.wechat { border-color: #07c160; color: #07c160; }
-        .export-btn.wechat:hover { background: rgba(7, 193, 96, 0.05); }
-        .section-divider { height: 1px; background: var(--border-color); margin: 20px 0; }
-        .section-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-        .section-title i { color: var(--accent-color); }
-    </style>
+    <link rel="stylesheet" href="/static/main.css">
 </head>
 <body>
 <div id="app">
@@ -280,7 +72,7 @@
 
             <div class="current-path-indicator" style="margin: 12px;">
                 <i data-lucide="folder" style="width: 12px; height: 12px; display: inline; vertical-align: middle;"></i>
-                当前目录: {{ currentDirectory || '根目录' }}
+                当前目录：{{ currentDirectory || '根目录' }}
             </div>
 
             <div class="sidebar-content">
@@ -365,10 +157,11 @@
                             <div class="editor-file-info">
                                 <i data-lucide="file-text" style="width: 16px; height: 16px; color: #3b82f6;"></i>
                                 <span class="editor-file-path">{{ editingFilePath }}</span>
+                                <span v-if="hasUnsavedChanges" class="unsaved-indicator">● 未保存</span>
                             </div>
-                            <button class="btn btn-sm btn-success" @click="saveFile()">
+                            <button class="btn btn-sm btn-success" @click="saveFile()" :disabled="saving">
                                 <i data-lucide="save" style="width: 12px; height: 12px;"></i>
-                                <span>保存</span>
+                                <span>{{ saving ? '保存中...' : '保存' }}</span>
                             </button>
                         </div>
                         <div class="editor-content">
@@ -394,7 +187,7 @@
                 <div class="form-group">
                     <label class="form-label">文件名</label>
                     <input type="text" class="form-input" v-model="newFileName" placeholder="例如: my-post.md" @keyup.enter="createFile">
-                    <p class="form-hint">将创建在: {{ currentDirectory || '根目录' }}</p>
+                    <p class="form-hint">将创建在：{{ currentDirectory || '根目录' }}</p>
                 </div>
                 <div class="form-group">
                     <label class="form-label">文件内容（可选）</label>
@@ -410,7 +203,7 @@
                 <div class="form-group">
                     <label class="form-label">文件夹名</label>
                     <input type="text" class="form-input" v-model="newFolderName" placeholder="例如: my-folder" @keyup.enter="createFolder">
-                    <p class="form-hint">将创建在: {{ currentDirectory || '根目录' }}</p>
+                    <p class="form-hint">将创建在：{{ currentDirectory || '根目录' }}</p>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>
@@ -433,7 +226,7 @@
                 <div class="form-group">
                     <label class="form-label">目标路径</label>
                     <input type="text" class="form-input" v-model="moveDestPath">
-                    <p class="form-hint">原路径: {{ moveSourcePath }}</p>
+                    <p class="form-hint">原路径：{{ moveSourcePath }}</p>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>
@@ -443,9 +236,9 @@
 
             <div v-if="panelType === 'config'">
                 <div class="form-group">
-                    <label class="form-label">Git仓库地址</label>
+                    <label class="form-label">Git 仓库地址</label>
                     <input type="text" class="form-input" v-model="gitRepo" placeholder="输入Git仓库SSH或HTTPS地址">
-                    <p class="form-hint">支持SSH和HTTPS两种方式</p>
+                    <p class="form-hint">支持 SSH 和 HTTPS 两种方式</p>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>
@@ -526,11 +319,11 @@
                     </button>
                     <button class="export-btn" @click="exportToHTML()" :disabled="!editingFilePath">
                         <i data-lucide="file-code" style="width: 14px; height: 14px;"></i>
-                        导出HTML
+                        导出 HTML
                     </button>
                     <button class="export-btn" @click="copyAsMarkdown()" :disabled="!editingFilePath">
                         <i data-lucide="clipboard" style="width: 14px; height: 14px;"></i>
-                        复制Markdown
+                        复制 Markdown
                     </button>
                 </div>
             </div>
@@ -619,438 +412,6 @@
         </div>
     </div>
 </div>
-
-<script>
-lucide.createIcons();
-
-const TreeNode = {
-    name: 'TreeNode',
-    props: {
-        node: Object,
-        level: Number,
-        expandedPaths: Object,
-        selectedPath: String,
-        editingPath: String,
-        currentDirectory: String
-    },
-    emits: ['toggle', 'select', 'selectDirectory', 'rename', 'delete', 'move', 'contextmenu', 'newfile', 'newfolder'],
-    computed: {
-        isExpanded() { return this.expandedPaths.has(this.node.path); },
-        isSelected() { return this.selectedPath === this.node.path; },
-        isEditing() { return this.editingPath === this.node.path; },
-        isCurrentDirectory() { return this.currentDirectory === this.node.path; },
-        hasChildren() { return this.node.children && this.node.children.length > 0; },
-        indentStyle() { return { paddingLeft: (this.level * 16) + 'px' }; }
-    },
-    methods: {
-        toggle() { if (this.node.type === 'directory') this.$emit('toggle', this.node.path); },
-        select() {
-            if (this.node.type === 'file') { this.$emit('select', this.node); }
-            else { this.$emit('selectDirectory', this.node.path); this.toggle(); }
-        },
-        onContextmenu(e) { e.preventDefault(); e.stopPropagation(); this.$emit('contextmenu', e, this.node); },
-        formatSize(bytes) {
-            if (!bytes) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        }
-    },
-    template: `
-        <div>
-            <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu">
-                <span class="tree-toggle" v-if="node.type === 'directory'" @click.stop="toggle" :class="{ 'expanded': isExpanded }">
-                    <svg v-if="hasChildren" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                </span>
-                <span class="tree-toggle" v-else></span>
-                <span class="tree-icon">
-                    <svg v-if="node.type === 'directory'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                </span>
-                <span class="tree-name">{{ node.name }}</span>
-                <span v-if="node.type === 'file' && node.size" class="file-size">{{ formatSize(node.size) }}</span>
-                <div class="tree-actions">
-                    <span class="tree-action-btn" @click.stop="$emit('rename', node)" title="重命名">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                    </span>
-                    <span class="tree-action-btn delete" @click.stop="$emit('delete', node)" title="删除">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </span>
-                </div>
-            </div>
-            <div v-if="node.type === 'directory' && hasChildren && isExpanded" class="tree-children">
-                <tree-node v-for="child in node.children" :key="child.path" :node="child" :level="level + 1" :expanded-paths="expandedPaths" :selected-path="selectedPath" :editing-path="editingPath" :current-directory="currentDirectory" @toggle="$emit('toggle', $event)" @select="$emit('select', $event)" @select-directory="$emit('selectDirectory', $event)" @rename="$emit('rename', $event)" @delete="$emit('delete', $event)" @move="$emit('move', $event)" @contextmenu="$emit('contextmenu', $event, $event)" @newfile="$emit('newfile', $event)" @newfolder="$emit('newfolder', $event)"></tree-node>
-            </div>
-        </div>
-    `
-};
-
-if (typeof Vue !== 'undefined') {
-    const { createApp } = Vue;
-    const app = createApp({
-        components: { TreeNode },
-        data() {
-            return {
-                contentEditor: null, files: [], fileTree: [], expandedPaths: new Set(),
-                selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
-                loading: false, gitRepo: localStorage.getItem('gitRepo') || '', sidebarCollapsed: false, panelOpen: false,
-                panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
-                newFolderName: '', renameFile_: null, renameNewName: '', moveFile_: null,
-                moveSourcePath: '', moveDestPath: '', contextMenuVisible: false,
-                contextMenuX: 0, contextMenuY: 0, contextMenuFile: null,
-                toastVisible: false, toastMessage: '', toastType: 'info', toastIcon: 'info',
-                modalVisible: false, modalTitle: '', modalMessage: '', modalType: 'info',
-                modalIcon: 'info', modalDetails: [], modalConfirmClass: 'btn-primary',
-                modalCallback: null, modalFile_: null,
-                currentTheme: localStorage.getItem('theme') || 'light',
-                codeTheme: localStorage.getItem('codeTheme') || 'github',
-                editorMode: localStorage.getItem('editorMode') || 'wysiwyg',
-                currentEditorContent: ''
-            };
-        },
-        computed: {
-            fileCount() { return this.files.filter(f => f.type === 'file').length; },
-            folderCount() { return this.files.filter(f => f.type === 'directory').length; }
-        },
-        methods: {
-            toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
-            selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
-            async commit() {
-                try { await axios.post('/api/commit'); this.closePanel(); this.showToast('提交成功', 'success'); this.changes = []; }
-                catch (error) { this.errorHandler(error); }
-            },
-            async showChangesPanel() {
-                try { const response = await axios.get('/api/posts/changes'); this.changes = response.data; this.panelTitle = '提交变更'; this.panelType = 'changes'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async saveFile() {
-                if (!this.editingFilePath || !this.contentEditor) return;
-                try { await axios.post('/api/file/save', { path: this.editingFilePath, content: this.contentEditor.getValue() }); this.showToast('保存成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async selectFile(file) {
-                await this.saveFile();
-                this.selectedFile = file;
-                this.editingFilePath = file.path;
-                this.loading = true;
-                try { const response = await axios.get('/api/file/content', { params: { file_path: file.path } }); await this.$nextTick(); this.createEditor(file.path, response.data); }
-                catch (error) { this.errorHandler(error); }
-                finally { this.loading = false; }
-            },
-            toggleExpand(path) {
-                if (this.expandedPaths.has(path)) this.expandedPaths.delete(path);
-                else this.expandedPaths.add(path);
-                this.expandedPaths = new Set(this.expandedPaths);
-            },
-            async initWorkspace() {
-                if (!this.gitRepo) {
-                    this.showToast('请先配置Git仓库地址', 'error');
-                    return;
-                }
-                this.showModal({
-                    title: '初始化仓库',
-                    message: '是否确定初始化仓库？',
-                    type: 'info',
-                    icon: 'git-branch-plus',
-                    details: ['如果已配置远程仓库地址，将自动克隆到本地', '如果本地已有文件，将被保留'],
-                    confirmClass: 'btn-primary',
-                    callback: async () => {
-                        try {
-                            // 传递仓库地址给后端
-                            const response = await axios.post('/api/init', { gitRepo: this.gitRepo });
-                            await this.getFiles();
-                            this.showToast(response.data.message || '初始化成功', 'success');
-                        } catch (error) { this.errorHandler(error); }
-                    }
-                });
-            },
-            async pullRepo() {
-                try { await axios.post('/api/pull'); await this.getFiles(); this.showToast('拉取成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            showNewFilePanel() { this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showNewFilePanelAt(path) { this.currentDirectory = path; this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showNewFolderPanel() { this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showNewFolderPanelAt(path) { this.currentDirectory = path; this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showConfigPanel() { this.panelTitle = 'Git仓库配置'; this.panelType = 'config'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showThemePanel() { this.panelTitle = '主题与设置'; this.panelType = 'theme'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            setTheme(theme) {
-                this.currentTheme = theme;
-                localStorage.setItem('theme', theme);
-                if (theme === 'light') {
-                    document.documentElement.removeAttribute('data-theme');
-                } else {
-                    document.documentElement.setAttribute('data-theme', theme);
-                }
-                if (this.contentEditor) {
-                    const content = this.contentEditor.getValue();
-                    this.createEditor(this.editingFilePath, content);
-                }
-                this.$nextTick(() => lucide.createIcons());
-            },
-            setCodeTheme(theme) {
-                this.codeTheme = theme;
-                localStorage.setItem('codeTheme', theme);
-                if (this.contentEditor) {
-                    const content = this.contentEditor.getValue();
-                    this.createEditor(this.editingFilePath, content);
-                }
-            },
-            setEditorMode(mode) {
-                this.editorMode = mode;
-                localStorage.setItem('editorMode', mode);
-                if (this.contentEditor) {
-                    const content = this.contentEditor.getValue();
-                    this.createEditor(this.editingFilePath, content);
-                }
-            },
-            exportToWechat() {
-                if (!this.contentEditor) return;
-                const html = this.contentEditor.getHTML();
-                const wechatStyle = this.applyWechatStyle(html);
-                this.copyToClipboard(wechatStyle, '微信公众号格式已复制到剪贴板');
-            },
-            exportToHTML() {
-                if (!this.contentEditor) return;
-                const html = this.contentEditor.getHTML();
-                const fullHtml = this.wrapFullHTML(html);
-                const blob = new Blob([fullHtml], { type: 'text/html' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = (this.editingFilePath.split('/').pop().replace(/\.[^/.]+$/, '') || 'document') + '.html';
-                a.click();
-                URL.revokeObjectURL(url);
-                this.showToast('HTML文件已导出', 'success');
-            },
-            copyAsMarkdown() {
-                if (!this.contentEditor) return;
-                const markdown = this.contentEditor.getValue();
-                this.copyToClipboard(markdown, 'Markdown内容已复制到剪贴板');
-            },
-            applyWechatStyle(html) {
-                const wechatStyles = `
-                    <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; padding: 20px; }
-                        h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
-                        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-                        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-                        p { margin-bottom: 16px; }
-                        code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(27,31,35,.05); border-radius: 3px; font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace; }
-                        pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; }
-                        pre code { background-color: transparent; padding: 0; }
-                        blockquote { padding: 0 1em; color: #6a737d; border-left: 0.25em solid #dfe2e5; margin: 0 0 16px 0; }
-                        table { border-spacing: 0; border-collapse: collapse; margin-bottom: 16px; }
-                        table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-                        table th { font-weight: 600; background-color: #f6f8fa; }
-                        table tr:nth-child(2n) { background-color: #f6f8fa; }
-                        img { max-width: 100%; box-sizing: content-box; background-color: #fff; }
-                        a { color: #0366d6; text-decoration: none; }
-                        a:hover { text-decoration: underline; }
-                    </style>
-                `;
-                return wechatStyles + html;
-            },
-            wrapFullHTML(html) {
-                return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${this.editingFilePath.split('/').pop()}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${this.codeTheme}.min.css">
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
-        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-        p { margin-bottom: 16px; }
-        code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(27,31,35,.05); border-radius: 3px; font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace; }
-        pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; }
-        pre code { background-color: transparent; padding: 0; }
-        blockquote { padding: 0 1em; color: #6a737d; border-left: 0.25em solid #dfe2e5; margin: 0 0 16px 0; }
-        table { border-spacing: 0; border-collapse: collapse; margin-bottom: 16px; width: 100%; }
-        table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-        table th { font-weight: 600; background-color: #f6f8fa; }
-        table tr:nth-child(2n) { background-color: #f6f8fa; }
-        img { max-width: 100%; }
-        a { color: #0366d6; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
-            },
-            copyToClipboard(text, message) {
-                navigator.clipboard.writeText(text).then(() => {
-                    this.showToast(message, 'success');
-                }).catch(() => {
-                    const textarea = document.createElement('textarea');
-                    textarea.value = text;
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                    this.showToast(message, 'success');
-                });
-            },
-            showRenamePanel(file) { this.renameFile_ = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showMovePanel(file) { this.moveFile_ = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            closePanel() { this.panelOpen = false; this.panelType = ''; },
-            async createFile() {
-                if (!this.newFileName) { this.showToast('请输入文件名', 'error'); return; }
-                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFileName : this.newFileName;
-                try { await axios.post('/api/file/create', { path: fullPath, content: this.newFileContent }); this.closePanel(); await this.getFiles(); if (this.currentDirectory) { this.expandedPaths.add(this.currentDirectory); this.expandedPaths = new Set(this.expandedPaths); } this.showToast('文件创建成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async createFolder() {
-                if (!this.newFolderName) { this.showToast('请输入文件夹名', 'error'); return; }
-                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFolderName : this.newFolderName;
-                try { await axios.post('/api/folder/create', { path: fullPath }); this.closePanel(); await this.getFiles(); if (this.currentDirectory) { this.expandedPaths.add(this.currentDirectory); this.expandedPaths = new Set(this.expandedPaths); } this.showToast('文件夹创建成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async renameFile() {
-                if (!this.renameNewName) { this.showToast('请输入新名称', 'error'); return; }
-                const oldPath = this.renameFile_.path;
-                const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/'));
-                const newPath = parentPath ? parentPath + '/' + this.renameNewName : this.renameNewName;
-                try { await axios.post('/api/file/rename', { oldPath: oldPath, newPath: newPath }); this.closePanel(); await this.getFiles(); if (this.editingFilePath === oldPath) this.editingFilePath = newPath; this.showToast('重命名成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async moveFile() {
-                if (!this.moveDestPath) { this.showToast('请输入目标路径', 'error'); return; }
-                try { await axios.post('/api/file/move', { sourcePath: this.moveSourcePath, destPath: this.moveDestPath }); this.closePanel(); await this.getFiles(); if (this.editingFilePath === this.moveSourcePath) this.editingFilePath = this.moveDestPath; this.showToast('移动成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
-            },
-            async deleteFile(file) {
-                this.showModal({
-                    title: '删除确认',
-                    message: `确定要删除 "${file.name}" 吗？`,
-                    type: 'danger',
-                    icon: 'trash-2',
-                    confirmClass: 'btn-primary',
-                    callback: async () => {
-                        try {
-                            await axios.delete('/api/file/delete', { params: { file_path: file.path } });
-                            if (this.editingFilePath === file.path) {
-                                if (this.contentEditor) { this.contentEditor.destroy(); this.contentEditor = null; }
-                                this.editingFilePath = '';
-                            }
-                            await this.getFiles();
-                            this.showToast('删除成功', 'success');
-                        } catch (error) { this.errorHandler(error); }
-                    }
-                });
-            },
-            async getFiles() {
-                this.loading = true;
-                try { const response = await axios.get('/api/files'); this.files = response.data; this.buildFileTree(); }
-                catch (error) { this.errorHandler(error); }
-                finally { this.loading = false; }
-            },
-            buildFileTree() {
-                const root = { children: {} };
-                const sortedFiles = [...this.files].sort((a, b) => a.path.localeCompare(b.path));
-                for (const file of sortedFiles) {
-                    const parts = file.path.split('/').filter(p => p);
-                    let current = root;
-                    let currentPath = '';
-                    for (let i = 0; i < parts.length; i++) {
-                        const part = parts[i];
-                        const isLast = i === parts.length - 1;
-                        currentPath = currentPath ? currentPath + '/' + part : part;
-                        if (!current.children[part]) {
-                            if (isLast) { current.children[part] = { name: part, path: currentPath, type: file.type, size: file.size, children: file.type === 'directory' ? {} : undefined }; }
-                            else { current.children[part] = { name: part, path: currentPath, type: 'directory', children: {} }; }
-                        } else if (isLast && file.type === 'directory') { current.children[part].type = 'directory'; if (!current.children[part].children) current.children[part].children = {}; }
-                        current = current.children[part];
-                    }
-                }
-                const convertToArray = (node) => {
-                    if (!node.children) return node;
-                    const children = Object.values(node.children).map(convertToArray).sort((a, b) => { if (a.type !== b.type) return a.type === 'directory' ? -1 : 1; return a.name.localeCompare(b.name); });
-                    return { ...node, children };
-                };
-                this.fileTree = Object.values(root.children).map(convertToArray).sort((a, b) => { if (a.type !== b.type) return a.type === 'directory' ? -1 : 1; return a.name.localeCompare(b.name); });
-            },
-            createEditor(filePath, rawContent) {
-                if (this.contentEditor) this.contentEditor.destroy();
-                const vditorTheme = this.currentTheme === 'dark' || this.currentTheme === 'purple' ? 'dark' : 'classic';
-                this.contentEditor = new Vditor('vditor', {
-                    height: '100%', toolbarConfig: { pin: true }, cache: { enable: false },
-                    after: () => { this.contentEditor.setValue(rawContent); },
-                    preview: { 
-                        markdown: { linkBase: filePath.substring(0, filePath.lastIndexOf('/')) },
-                        theme: { current: vditorTheme }
-                    },
-                    hljs: { style: this.codeTheme, lineNumber: true },
-                    upload: { url: "/upload", fieldName: "files", max: 20 * 1024 * 1024, extraData: { belongDirName: filePath.substring(0, filePath.lastIndexOf('/')) }, success: (file, response) => { return response.data.succMap[file.name]; } },
-                    input: () => { if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer); this.autoSaveTimer = setTimeout(() => { this.saveFile(); }, 2000); },
-                    mode: this.editorMode, 
-                    theme: vditorTheme
-                });
-            },
-            errorHandler(error) { console.error(error); const message = error.response?.data?.detail || '操作失败，请重试'; this.showToast(message, 'error'); },
-            showToast(message, type = 'info') { this.toastMessage = message; this.toastType = type; this.toastIcon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'; this.toastVisible = true; this.$nextTick(() => lucide.createIcons()); setTimeout(() => { this.toastVisible = false; }, 3000); },
-            showModal(options) {
-                this.modalTitle = options.title || '确认';
-                this.modalMessage = options.message || '';
-                this.modalType = options.type || 'info';
-                this.modalIcon = options.icon || 'info';
-                this.modalDetails = options.details || [];
-                this.modalConfirmClass = options.confirmClass || 'btn-primary';
-                this.modalCallback = options.callback || null;
-                this.modalVisible = true;
-                this.$nextTick(() => lucide.createIcons());
-            },
-            confirmModal() {
-                this.modalVisible = false;
-                if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; }
-            },
-            cancelModal() {
-                this.modalVisible = false;
-                this.modalCallback = null;
-            },
-            saveRepoConfig() { localStorage.setItem('gitRepo', this.gitRepo); axios.post('/api/git-repo', { gitRepo: this.gitRepo }).then(response => { this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); }).catch(error => { this.errorHandler(error); }); },
-            showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => lucide.createIcons()); },
-            hideContextMenu() { this.contextMenuVisible = false; this.contextMenuFile = null; },
-            openFile() { if (this.contextMenuFile && this.contextMenuFile.type === 'file') this.selectFile(this.contextMenuFile); this.hideContextMenu(); },
-            newFileAtContext() { if (this.contextMenuFile) this.showNewFilePanelAt(this.contextMenuFile.path); },
-            newFolderAtContext() { if (this.contextMenuFile) this.showNewFolderPanelAt(this.contextMenuFile.path); },
-            renameContext() { if (this.contextMenuFile) this.showRenamePanel(this.contextMenuFile); },
-            moveContext() { if (this.contextMenuFile) this.showMovePanel(this.contextMenuFile); },
-            deleteContext() { if (this.contextMenuFile) this.deleteFile(this.contextMenuFile); }
-        },
-        async mounted() {
-            if (this.currentTheme && this.currentTheme !== 'light') {
-                document.documentElement.setAttribute('data-theme', this.currentTheme);
-            }
-            await this.getFiles();
-            try { const response = await axios.get('/api/git-repo'); this.gitRepo = response.data.gitRepo; } catch (error) { console.error('Failed to get git repo config:', error); }
-            this._clickHandler = () => { this.hideContextMenu(); };
-            document.addEventListener('click', this._clickHandler);
-            this.$nextTick(() => lucide.createIcons());
-        },
-        beforeUnmount() {
-            if (this.autoSaveTimer) {
-                clearTimeout(this.autoSaveTimer);
-                this.autoSaveTimer = null;
-            }
-            if (this.contentEditor) {
-                this.contentEditor.destroy();
-                this.contentEditor = null;
-            }
-            if (this._clickHandler) {
-                document.removeEventListener('click', this._clickHandler);
-                this._clickHandler = null;
-            }
-        }
-    });
-    app.mount('#app');
-} else { console.error('Vue is not loaded'); }
-</script>
+<script src="/static/main.js"></script>
 </body>
 </html>
