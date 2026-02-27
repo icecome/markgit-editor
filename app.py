@@ -41,7 +41,7 @@ BLOG_BRANCH = os.getenv('BLOG_BRANCH', 'main')
 CMD_AFTER_PUSH = os.getenv('CMD_AFTER_PUSH', '')
 NEW_BLOG_TEMPLATE_PATH = os.getenv('NEW_BLOG_TEMPLATE_PATH', os.path.join(BLOG_CACHE_PATH, 'archetypes', 'posts.md'))
 GIT_SSH_KEY_PATH = os.getenv('GIT_SSH_KEY_PATH', '')
-GIT_CONFIG_FILE = os.path.join(PROG_PATH, 'git_config.txt')
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -109,25 +109,12 @@ def check_name(dir_name: str):
         raise HTTPException(status_code=400, detail="Invalid directory name. Only alphanumeric characters, hyphens and underscores are allowed.")
 
 def get_git_repo_config() -> str:
-    try:
-        if os.path.exists(GIT_CONFIG_FILE):
-            with open(GIT_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content:
-                    return content
-    except Exception as e:
-        logger.error("读取 git 配置失败：" + str(e))
     return BLOG_GIT_SSH
 
 def save_git_repo_config(repo_url: str) -> bool:
-    try:
-        with open(GIT_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            f.write(repo_url)
-        logger.info("Git 仓库配置已保存：" + repo_url)
-        return True
-    except Exception as e:
-        logger.error("保存 git 配置失败：" + str(e))
-        return False
+    # 不再保存到文件，仅返回成功
+    logger.info("Git 仓库配置已设置：" + repo_url)
+    return True
 
 def get_md_yaml(file_path: str) -> dict:
     yaml_lines = []
@@ -727,10 +714,8 @@ async def set_git_repo(request: Request):
         git_repo = data.get("gitRepo", "")
         if not git_repo:
             raise HTTPException(status_code=400, detail="Git repo URL is required")
-        if save_git_repo_config(git_repo):
-            return JSONResponse(content={"message": "Git 仓库配置保存成功"})
-        else:
-            raise HTTPException(status_code=500, detail="保存 git 仓库配置失败")
+        # 不再保存到文件，仅返回成功
+        return JSONResponse(content={"message": "Git 仓库配置已设置"})
     except HTTPException:
         raise
     except Exception as e:

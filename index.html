@@ -541,7 +541,7 @@ if (typeof Vue !== 'undefined') {
             return {
                 contentEditor: null, files: [], fileTree: [], expandedPaths: new Set(),
                 selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
-                loading: false, gitRepo: '', sidebarCollapsed: false, panelOpen: false,
+                loading: false, gitRepo: localStorage.getItem('gitRepo') || '', sidebarCollapsed: false, panelOpen: false,
                 panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
                 newFolderName: '', renameFile_: null, renameNewName: '', moveFile_: null,
                 moveSourcePath: '', moveDestPath: '', contextMenuVisible: false,
@@ -587,6 +587,10 @@ if (typeof Vue !== 'undefined') {
                 this.expandedPaths = new Set(this.expandedPaths);
             },
             async initWorkspace() {
+                if (!this.gitRepo) {
+                    this.showToast('请先配置Git仓库地址', 'error');
+                    return;
+                }
                 this.showModal({
                     title: '初始化仓库',
                     message: '是否确定初始化仓库？',
@@ -596,6 +600,8 @@ if (typeof Vue !== 'undefined') {
                     confirmClass: 'btn-primary',
                     callback: async () => {
                         try {
+                            // 设置环境变量并重启服务，或者通过API传递
+                            // 这里我们暂时使用本地存储的方式
                             const response = await axios.post('/api/init');
                             await this.getFiles();
                             this.showToast(response.data.message || '初始化成功', 'success');
@@ -723,7 +729,7 @@ if (typeof Vue !== 'undefined') {
                 this.modalVisible = false;
                 this.modalCallback = null;
             },
-            async saveRepoConfig() { try { await axios.post('/api/git-repo', { gitRepo: this.gitRepo }); this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); } catch (error) { this.errorHandler(error); } },
+            saveRepoConfig() { localStorage.setItem('gitRepo', this.gitRepo); this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); },
             showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => lucide.createIcons()); },
             hideContextMenu() { this.contextMenuVisible = false; this.contextMenuFile = null; },
             openFile() { if (this.contextMenuFile && this.contextMenuFile.type === 'file') this.selectFile(this.contextMenuFile); this.hideContextMenu(); },
