@@ -32,20 +32,19 @@ python3 app.py
 ```
 
 3. 访问应用
-   打开浏览器访问 `http://localhost:5000`
+   打开浏览器访问 `http://localhost:13131`（或您配置的 PORT 端口）
 
 ## 环境变量配置
 | 环境变量 | 描述 | 默认值 |
 |---------|------|--------|
 | BLOG_GIT_SSH | Git 仓库 SSH 地址 | 空 |
 | CMD_AFTER_PUSH | 推送后执行的命令 | 空 |
+| ALLOWED_DEPLOY_SCRIPTS_DIR | 部署脚本允许目录 | 空（允许任意绝对路径） |
 | BLOG_CACHE_PATH | 本地缓存目录 | ./blog_cache |
 | BLOG_BRANCH | Git 分支 | main |
-| ADMIN_PASSWORD | 管理员密码 | admin123 |
-| SECRET_KEY | JWT 密钥 | 自动生成 |
 | CORS_ORIGINS | 允许的 CORS 来源 | http://localhost:13131,http://127.0.0.1:13131 |
 | MAX_CONTENT_LENGTH | 最大上传文件大小 | 20MB |
-| PORT | 服务端口 | 8080 |
+| PORT | 服务端口 | 13131 |
 | HIDDEN_FOLDERS | 隐藏的文件夹（逗号分隔） | .git,.github,.idea,.vscode,.vs,node_modules,... |
 | ALLOWED_FILE_EXTENSIONS | 允许的文件扩展名（逗号分隔） | .md,.markdown,.mdown,.mkd,.mkdown,.ronn, |
 
