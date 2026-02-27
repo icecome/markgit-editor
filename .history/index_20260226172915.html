@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blog Online Editor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Vditor -->
+    <link rel="stylesheet" href="https://unpkg.com/vditor@3.9.0/dist/index.css">
+    <script src="https://unpkg.com/vditor@3.9.0/dist/index.min.js"></script>
+    <!-- Axios -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+        }
+
+        .sidebar {
+            background-color: white;
+            border-right: 1px solid #e5e7eb;
+            height: calc(100vh - 64px);
+            overflow-y: auto;
+        }
+
+        .editor-container {
+            background-color: white;
+            height: calc(100vh - 64px);
+            overflow: hidden;
+        }
+
+        .list-group-item {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 16px;
+        }
+
+        .list-group-item:hover {
+            background-color: #f3f4f6;
+        }
+
+        .list-group-item.active {
+            background-color: #e6f0ff;
+            border-left: 4px solid #3b82f6;
+            font-weight: 500;
+        }
+
+        .btn {
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .modal {
+            display: block;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-dialog {
+            max-width: 600px;
+            margin: 100px auto;
+        }
+
+        .modal-content {
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity .15s;
+        }
+
+        .fade-enter, .fade-leave-to {
+            opacity: 0;
+        }
+
+        .fade-leave, .fade-enter-to {
+            opacity: 1;
+        }
+
+        #vditor {
+            height: 100%;
+        }
+
+        .vditor-toolbar {
+            border-bottom: 1px solid #e5e7eb;
+            background-color: #f9fafb;
+        }
+
+        .vditor-content {
+            height: calc(100% - 60px);
+        }
+
+        .vditor-preview {
+            background-color: #f8f9fa;
+        }
+
+        .category-tag {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background-color: #e5e7eb;
+            color: #4b5563;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+
+        .category-tag:hover {
+            background-color: #d1d5db;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100px;
+        }
+
+        .loading::after {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <nav class="navbar fixed top-0 left-0 right-0 z-10 bg-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-pencil-square-o text-blue-600 text-xl"></i>
+                <a class="text-xl font-semibold text-gray-800" href="#">Blog Online Editor</a>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button type="button" class="btn px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center" @click="newPost()">
+                    <i class="fa fa-plus mr-2"></i> 新博文
+                </button>
+                <button type="button" class="btn px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center" @click="showChanges()">
+                    <i class="fa fa-check mr-2"></i> 提交
+                </button>
+                <button type="button" class="btn px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center" @click="redeploy()">
+                    <i class="fa fa-refresh mr-2"></i> 重新部署
+                </button>
+                <button type="button" class="btn px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center" @click="soft_reset()">
+                    <i class="fa fa-sync mr-2"></i> 更新
+                </button>
+                <button type="button" class="btn px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 flex items-center" @click="showRepoConfig = !showRepoConfig">
+                    <i class="fa fa-cog mr-2"></i> 配置
+                </button>
+                <button type="button" class="btn px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center" @click="reset()">
+                    <i class="fa fa-trash mr-2"></i> 重置
+                </button>
+            </div>
+        </div>
+        <!-- Git仓库配置 -->
+        <div v-if="showRepoConfig" class="bg-gray-100 p-4 border-t border-gray-200">
+            <div class="container mx-auto px-4">
+                <h4 class="font-semibold text-gray-700 mb-2">Git仓库配置</h4>
+                <div class="flex space-x-2">
+                    <input type="text" v-model="gitRepo" placeholder="输入Git仓库SSH地址" class="flex-1 px-3 py-2 border border-gray-300 rounded-md">
+                    <button type="button" class="btn px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700" @click="saveRepoConfig()">
+                        保存配置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-4 pt-20 pb-8">
+        <div class="flex h-[calc(100vh-80px)]">
+            <!-- Sidebar -->
+            <div class="sidebar w-64 flex flex-col">
+                <div class="p-4 border-b border-gray-200">
+                    <h3 class="font-semibold text-gray-700 mb-3">分类</h3>
+                    <div class="flex flex-wrap">
+                        <span v-for="cate in categories" :key="cate" class="category-tag" @click="filterByCategory(cate)">
+                            {{ cate }}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto">
+                    <h3 class="font-semibold text-gray-700 p-4 border-b border-gray-200">文章列表</h3>
+                    <div v-if="loading" class="loading"></div>
+                    <div v-else-if="posts.length === 0" class="flex items-center justify-center h-40 text-gray-500">
+                        <div class="text-center">
+                            <i class="fa fa-file-text-o text-2xl mb-4"></i>
+                            <p class="text-lg">暂无文章，点击"新博文"创建第一篇文章</p>
+                        </div>
+                    </div>
+                    <div v-else class="list-group">
+                        <div 
+                            v-for="post in posts" 
+                            :key="post.dirName" 
+                            class="list-group-item flex justify-between items-center"
+                            :class="{ 'active' : editingPostDirName==post.dirName }"
+                            @click="editPost(post.dirName)"
+                        >
+                            <span class="truncate">{{ post.title }}</span>
+                            <button 
+                                type="button" 
+                                class="text-gray-400 hover:text-red-600 transition-colors"
+                                @click.stop="deletePost(post.dirName)"
+                            >
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Editor -->
+            <div class="editor-container flex-1 ml-4">
+                <div v-if="!editingPostDirName" class="flex items-center justify-center h-full text-gray-500">
+                    <div class="text-center">
+                        <i class="fa fa-file-text-o text-4xl mb-4"></i>
+                        <p class="text-lg">请选择或创建一篇文章开始编辑</p>
+                    </div>
+                </div>
+                <div v-else id="vditor"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Changes Modal -->
+    <div v-if="is_show_changes" class="modal" @click.self="is_show_changes = false">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header p-4 border-b border-gray-200">
+                    <h4 class="modal-title text-lg font-semibold text-gray-800">当前所有改动</h4>
+                    <button type="button" class="close text-gray-400 hover:text-gray-600" @click="is_show_changes = false">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <ul class="list-disc pl-5 space-y-2">
+                        <li v-for="change in changes" :key="change" class="text-gray-700">{{ change }}</li>
+                    </ul>
+                </div>
+                <div class="modal-footer p-4 border-t border-gray-200 flex justify-end space-x-3">
+                    <button type="button" class="btn px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300" @click="is_show_changes = false">
+                        关闭
+                    </button>
+                    <button type="button" class="btn px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700" @click="commit()">
+                        提交变更
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 确保Vue加载完成
+if (typeof Vue !== 'undefined') {
+  const { createApp } = Vue;
+
+  const app = createApp({
+    data() {
+      return {
+        contentEditor: null,
+        posts: [],
+        editingPostDirName: '',
+        is_show_changes: false,
+        changes: [],
+        categories: [],
+        category: '',
+        loading: false,
+        filterCategory: null,
+        gitRepo: '',
+        showRepoConfig: false
+      };
+    },
+    computed: {
+      filteredPosts() {
+        if (!this.filterCategory) {
+          return this.posts;
+        }
+        return this.posts;
+      }
+    },
+    methods: {
+      async commit() {
+        try {
+          await axios.post('/api/commit');
+          this.is_show_changes = false;
+          this.showNotification('提交成功', 'success');
+        } catch (error) {
+          this.errorHandler(error);
+        }
+      },
+      redeploy() {
+        axios.post('/api/redeploy')
+          .then(response => {
+            this.showNotification('重新部署成功', 'success');
+          })
+          .catch(error => {
+            this.errorHandler(error);
+          });
+      },
+      deletePost(dirName) {
+        if (confirm('确定要删除这篇文章吗？')) {
+          if (this.editingPostDirName === dirName) {
+            if (this.contentEditor) {
+              this.contentEditor.destroy();
+              this.contentEditor = null;
+            }
+            this.editingPostDirName = '';
+          }
+          axios.delete(`/api/post/${dirName}`)
+            .then(async response => {
+              await this.getPosts();
+              this.showNotification('删除成功', 'success');
+            })
+            .catch(error => {
+              this.errorHandler(error);
+            });
+        }
+      },
+      showChanges() {
+        axios.get('/api/posts/changes')
+          .then(response => {
+            this.changes = response.data;
+            this.is_show_changes = true;
+          })
+          .catch(error => {
+            this.errorHandler(error);
+          });
+      },
+      getCategories() {
+        axios.get('/api/categories')
+          .then(response => {
+            this.categories = response.data;
+          })
+          .catch(error => {
+            this.errorHandler(error);
+          });
+      },
+      async savePost() {
+        if (!this.editingPostDirName || !this.contentEditor) return;
+        try {
+          await axios.post(`/api/post/${this.editingPostDirName}`, this.contentEditor.getValue());
+        } catch (error) {
+          this.errorHandler(error);
+        }
+      },
+      async editPost(dirName) {
+        await this.savePost();
+        
+        this.editingPostDirName = dirName;
+        this.loading = true;
+        
+        try {
+          const response = await axios.get(`/api/post/${dirName}`);
+          await this.$nextTick();
+          this.createEditor(dirName, response.data);
+          await this.getCategories();
+        } catch (error) {
+          this.errorHandler(error);
+        } finally {
+          this.loading = false;
+        }
+      },
+      reset() {
+        if (confirm('是否确定执行重置操作？')) {
+          axios.post('/api/reset')
+            .then(async response => {
+              await this.getPosts();
+              if (this.contentEditor) {
+                this.contentEditor.destroy();
+                this.contentEditor = null;
+              }
+              this.editingPostDirName = '';
+              this.showNotification('重置成功', 'success');
+            })
+            .catch(error => {
+              this.errorHandler(error);
+            });
+        }
+      },
+      soft_reset() {
+        if (confirm('是否确定执行更新操作？')) {
+          axios.post('/api/soft_reset')
+            .then(async response => {
+              await this.getPosts();
+              this.showNotification('更新成功', 'success');
+            })
+            .catch(error => {
+              this.errorHandler(error);
+            });
+        }
+      },
+      newPost() {
+        console.log('Creating new post...');
+        axios.post('/api/post/create')
+          .then(async response => {
+            console.log('New post created:', response.data);
+            await this.getPosts();
+            this.editPost(response.data.dirName);
+          })
+          .catch(error => {
+            console.error('Error creating post:', error);
+            this.errorHandler(error);
+          });
+      },
+      async getPosts() {
+        this.loading = true;
+        try {
+          const response = await axios.get('/api/posts');
+          console.log('Posts received:', response.data);
+          this.posts = Object.values(response.data);
+        } catch (error) {
+          console.error('Error getting posts:', error);
+          this.errorHandler(error);
+        } finally {
+          this.loading = false;
+        }
+      },
+      createEditor(dirName, rawMd) {
+        if (this.contentEditor) {
+          this.contentEditor.destroy();
+        }
+        
+        this.contentEditor = new Vditor('vditor', {
+          height: '100%',
+          toolbarConfig: {
+            pin: true
+          },
+          cache: {
+            enable: false
+          },
+          after: () => {
+            this.contentEditor.setValue(rawMd);
+          },
+          preview: {
+            markdown: {
+              linkBase: dirName
+            }
+          },
+          upload: {
+            url: "/upload",
+            fieldName: "files",
+            max: 20 * 1024 * 1024,
+            extraData: {
+              belongDirName: dirName
+            },
+            success: (file, response) => {
+              return `${dirName}/${response.data.succMap[file.name]}`;
+            }
+          },
+          input: () => {
+            this.savePost();
+          },
+          mode: 'wysiwyg',
+          theme: 'classic'
+        });
+      },
+      errorHandler(error) {
+        console.error(error);
+        this.showNotification('操作失败，请重试', 'error');
+      },
+      showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `fixed top-20 right-4 px-4 py-3 rounded-md shadow-lg z-50 transition-all duration-300 transform translate-x-0 opacity-100 ${
+          type === 'success' ? 'bg-green-500 text-white' :
+          type === 'error' ? 'bg-red-500 text-white' :
+          'bg-blue-500 text-white'
+        }`;
+        notification.innerHTML = `
+          <div class="flex items-center">
+            <i class="fa ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2"></i>
+            <span>${message}</span>
+          </div>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          notification.classList.add('translate-x-full', 'opacity-0');
+          setTimeout(() => {
+            document.body.removeChild(notification);
+          }, 300);
+        }, 3000);
+      },
+      filterByCategory(category) {
+        this.filterCategory = this.filterCategory === category ? null : category;
+      },
+      async saveRepoConfig() {
+        try {
+          await axios.post('/api/git-repo', { gitRepo: this.gitRepo });
+          this.showRepoConfig = false;
+          this.showNotification('Git仓库配置已保存，请点击"重置"按钮重新初始化工作空间', 'success');
+        } catch (error) {
+          this.errorHandler(error);
+        }
+      }
+    },
+    mounted() {
+      console.log('Mounted, getting posts...');
+      this.getPosts();
+      this.getCategories();
+      const savedRepo = localStorage.getItem('gitRepo');
+      if (savedRepo) {
+        this.gitRepo = savedRepo;
+      }
+    }
+  });
+
+  app.mount('#app');
+  console.log('Vue app mounted');
+} else {
+  console.error('Vue is not loaded');
+}
+</script>
+</body>
+</html>

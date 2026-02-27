@@ -1,0 +1,15 @@
+[Unit]
+Description=MarkGit Editor Service
+After=network.target
+
+[Service]
+ExecStart=/path/to/markgit-editor/start.sh
+Type=forking
+Restart=on-failure
+RestartSec=3s
+PIDFile=/path/to/markgit-editor/pid
+User=your-username
+
+[Install]
+WantedBy=multi-user.target
+

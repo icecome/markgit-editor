@@ -1,0 +1,56 @@
+import datetime
+import html.parser
+import os
+import re
+import shutil
+import subprocess
+import traceback
+import uuid
+import logging
+
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, status
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pydantic import BaseModel
+import yaml
+
+app = FastAPI(title="Blog Online Editor API", version="1.0.0")
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Static files
+app.mount("/static", StaticFiles(directory="."), name="static")
+
+# Root route
+@app.get("/")
+def root():
+    return FileResponse("index.html")
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse("favicon.ico")
+
+# Configuration
+PROG_PATH = os.path.dirname(__file__)
+MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', str(20 * 1024 * 1024)))
+BLOG_CACHE_PATH = os.getenv('BLOG_CACHE_PATH', os.path.join(PROG_PATH, 'blog_cache'))
+BLOG_GIT_SSH = os.getenv('BLOG_GIT_SSH', 'git@gitee.com:RainbowYYQ/my-blog.git')
+POSTS_PATH = os.getenv('POSTS_PATH', os.path.join(BLOG_CACHE_PATH, 'content', 'posts'))
+BLOG_BRANCH = os.getenv('BLOG_BRANCH', 'master')
+CMD_AFTER_PUSH = os.getenv('CMD_AFTER_PUSH', 'bash /home/yyq/update_blog.sh')
+NEW_BLOG_TEMPLATE_PATH = os.getenv('NEW_BLOG_TEMPLATE_PATH', os.path.join(BLOG_CACHE_PATH, 'archetypes', 'posts.md'))
+GIT_SSH_KEY_PATH = os.getenv('GIT_SSH_KEY_PATH', '')
+
+# Security
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET

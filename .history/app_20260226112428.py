@@ -1,0 +1,37 @@
+import datetime
+import html.parser
+import os
+import re
+import shutil
+import subprocess
+import traceback
+import uuid
+
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pydantic import BaseModel
+import yaml
+
+app = FastAPI(title="Blog Online Editor API", version="1.0.0")
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Static files
+app.mount("", StaticFiles(directory=".", html=True), name="static")
+
+# Configuration
+PROG_PATH = os.path.dirname(__file__)
+MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', str(20 * 1024 * 1024)))
+BLOG_CACHE_PATH = os.getenv('BLOG_CACHE_PATH', os.path.join(PROG_PATH, 'blog_cache'))
+BLOG_GIT
