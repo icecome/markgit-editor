@@ -43,8 +43,48 @@ python3 app.py
 | BLOG_BRANCH | Git 分支 | main |
 | ADMIN_PASSWORD | 管理员密码 | admin123 |
 | SECRET_KEY | JWT 密钥 | 自动生成 |
-| CORS_ORIGINS | 允许的 CORS 来源 | http://localhost:5000,http://127.0.0.1:5000 |
+| CORS_ORIGINS | 允许的 CORS 来源 | http://localhost:13131,http://127.0.0.1:13131 |
 | MAX_CONTENT_LENGTH | 最大上传文件大小 | 20MB |
+| PORT | 服务端口 | 8080 |
+| HIDDEN_FOLDERS | 隐藏的文件夹（逗号分隔） | .git,.github,.idea,.vscode,.vs,node_modules,... |
+| ALLOWED_FILE_EXTENSIONS | 允许的文件扩展名（逗号分隔） | .md,.markdown,.mdown,.mkd,.mkdown,.ronn, |
+
+### 隐藏文件夹配置
+默认隐藏以下文件夹，避免用户误操作破坏博客系统：
+- `.git`, `.github` - Git 相关
+- `themes`, `public`, `resources`, `static`, `assets` - 博客系统目录
+- `layouts`, `archetypes`, `data`, `i18n` - Hugo 配置目录
+
+### 允许的文件类型
+默认只显示以下文件类型：
+- Markdown 文件：`.md`, `.markdown`, `.mdown`, `.mkd`, `.mkdown`, `.ronn`
+- 无后缀文件
+
+### 不同博客系统的配置示例
+
+**Hugo 博客**：
+```shell
+export HIDDEN_FOLDERS=".git,.github,themes,public,resources,static,assets,layouts,archetypes,data,i18n"
+export ALLOWED_FILE_EXTENSIONS=".md,.markdown,"
+```
+
+**Hexo 博客**：
+```shell
+export HIDDEN_FOLDERS=".git,.github,node_modules,themes,public,source,scaffolds,scripts"
+export ALLOWED_FILE_EXTENSIONS=".md,.markdown,"
+```
+
+**Jekyll 博客**：
+```shell
+export HIDDEN_FOLDERS=".git,.github,_site,_includes,_layouts,_sass,_plugins,assets"
+export ALLOWED_FILE_EXTENSIONS=".md,.markdown,.html,"
+```
+
+**通用博客**（显示所有文件）：
+```shell
+export HIDDEN_FOLDERS=".git,.github"
+export ALLOWED_FILE_EXTENSIONS=""  # 空字符串表示允许所有文件
+```
 
 ## 实现原理
 1. Git clone 拉下远端博客文章库

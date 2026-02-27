@@ -42,6 +42,12 @@ CMD_AFTER_PUSH = os.getenv('CMD_AFTER_PUSH', '')
 NEW_BLOG_TEMPLATE_PATH = os.getenv('NEW_BLOG_TEMPLATE_PATH', os.path.join(BLOG_CACHE_PATH, 'archetypes', 'posts.md'))
 GIT_SSH_KEY_PATH = os.getenv('GIT_SSH_KEY_PATH', '')
 
+HIDDEN_FOLDERS_DEFAULT = '.git,.github,.idea,.vscode,.vs,node_modules,.node_modules,__pycache__,.pytest_cache,.mypy_cache,.tox,.eggs,.history,.Trash,themes,public,resources,static,assets,layouts,archetypes,data,i18n'
+HIDDEN_FOLDERS = set(os.getenv('HIDDEN_FOLDERS', HIDDEN_FOLDERS_DEFAULT).split(','))
+
+ALLOWED_FILE_EXTENSIONS_DEFAULT = '.md,.markdown,.mdown,.mkd,.mkdown,.ronn,'
+ALLOWED_FILE_EXTENSIONS = set(ext.strip() if ext.strip() else '' for ext in os.getenv('ALLOWED_FILE_EXTENSIONS', ALLOWED_FILE_EXTENSIONS_DEFAULT).split(','))
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -131,7 +137,10 @@ def get_md_yaml(file_path: str) -> dict:
                         break
                     else:
                         start_flag = True
-        return yaml.safe_load('\n'.join(yaml_lines)) or {}
+        yaml_content = '\n'.join(yaml_lines)
+        if not yaml_content.strip():
+            return {}
+        return yaml.safe_load(yaml_content) or {}
     except yaml.YAMLError as e:
         logger.warning("解析 YAML 失败 " + file_path + ": " + str(e))
         return {}
@@ -213,33 +222,90 @@ def git_add():
 
 def git_commit():
     try:
-        commit_cmd = ['git', 'commit']
-        commit_msg = []
-        for line in pretty_git_status(git_status()):
-            commit_msg.append('-m')
-            commit_msg.append(line)
-        if not commit_msg:
+        # 检查是否有更改需要提交
+        status = git_status()
+        if not status:
             logger.info("没有更改需要提交")
             return
+        
+        # 生成提交消息
+        commit_cmd = ['git', 'commit']
+        commit_msg = []
+        for line in pretty_git_status(status):
+            commit_msg.append('-m')
+            commit_msg.append(line)
         commit_cmd.extend(commit_msg)
+        
+        # 执行提交
         env = get_git_env()
-        subprocess.run(commit_cmd, cwd=BLOG_CACHE_PATH, check=True, env=env)
-        logger.info("提交成功")
+        commit_result = subprocess.run(commit_cmd, cwd=BLOG_CACHE_PATH, check=True, env=env, capture_output=True, text=True)
+        logger.info("提交成功：" + commit_result.stdout)
         
-        subprocess.run(['git', 'push', '--set-upstream', 'origin', BLOG_BRANCH], cwd=BLOG_CACHE_PATH, check=True, env=env)
-        logger.info("推送成功")
+        # 检查远程配置
+        git_repo = get_git_repo_config()
+        if not git_repo:
+            raise HTTPException(status_code=500, detail="未配置远程仓库地址")
         
+        # 确保远程配置正确
+        try:
+            remote_result = subprocess.run(['git', 'remote', '-v'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+            has_origin = 'origin' in remote_result.stdout
+            if has_origin:
+                # 更新现有远程配置
+                subprocess.run(['git', 'remote', 'set-url', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                logger.info("已更新远程仓库配置：" + git_repo)
+            else:
+                # 添加新的远程配置
+                subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                logger.info("已添加远程仓库配置：" + git_repo)
+        except subprocess.CalledProcessError as e:
+            logger.warning("更新远程配置失败：" + (e.stderr if e.stderr else str(e)))
+        
+        # 获取当前分支名称
+        current_branch_result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        current_branch = current_branch_result.stdout.strip()
+        logger.info("当前分支：" + current_branch)
+        
+        # 先 fetch 远程仓库信息
+        try:
+            fetch_result = subprocess.run(['git', 'fetch', 'origin'], cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True, timeout=60)
+            logger.info("Fetch result: " + fetch_result.stdout)
+        except subprocess.TimeoutExpired:
+            logger.warning("Fetch 超时，继续推送")
+        except subprocess.CalledProcessError as e:
+            logger.warning("Fetch 失败：" + (e.stderr if e.stderr else str(e)))
+        
+        # 获取远程默认分支
+        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        if remote_head_result.returncode == 0:
+            remote_default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
+        else:
+            remote_default_branch = 'main'
+        logger.info("远程默认分支：" + remote_default_branch)
+        
+        # 执行推送，将当前分支推送到远程默认分支
+        push_result = subprocess.run(['git', 'push', '-u', 'origin', current_branch + ':' + remote_default_branch], cwd=BLOG_CACHE_PATH, check=True, env=env, capture_output=True, text=True)
+        logger.info("推送成功：" + push_result.stdout)
+        
+        # 执行部署
         deploy()
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
-        logger.error("Git 提交失败：" + error_msg)
+        logger.error("Git 操作失败：" + error_msg)
         if 'fatal: not a git repository' in error_msg:
             raise HTTPException(status_code=500, detail="不是 Git 仓库，请先初始化")
         elif 'fatal: Authentication failed' in error_msg:
             raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
         elif 'fatal: remote error' in error_msg:
             raise HTTPException(status_code=500, detail="远程错误：无法推送")
-        raise HTTPException(status_code=500, detail="提交操作失败")
+        elif 'fatal: repository not found' in error_msg:
+            raise HTTPException(status_code=500, detail="仓库未找到，请检查仓库地址")
+        elif 'fatal: could not read Username' in error_msg:
+            raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
+        raise HTTPException(status_code=500, detail="提交操作失败：" + error_msg)
+    except Exception as e:
+        logger.error("提交失败：" + str(e))
+        raise HTTPException(status_code=500, detail="提交失败：" + str(e))
 
 def deploy():
     try:
@@ -261,10 +327,53 @@ def pull_updates():
         if not os.path.exists(os.path.join(BLOG_CACHE_PATH, '.git')):
             raise HTTPException(status_code=400, detail="不是 Git 仓库，请先初始化")
         
+        # 检查并更新远程配置
+        git_repo = get_git_repo_config()
+        if git_repo:
+            try:
+                remote_result = subprocess.run(['git', 'remote', '-v'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+                has_origin = 'origin' in remote_result.stdout
+                if has_origin:
+                    # 更新现有远程配置
+                    subprocess.run(['git', 'remote', 'set-url', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                    logger.info("已更新远程仓库配置：" + git_repo)
+                else:
+                    # 添加新的远程配置
+                    subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                    logger.info("已添加远程仓库配置：" + git_repo)
+            except subprocess.CalledProcessError as e:
+                logger.warning("更新远程配置失败：" + (e.stderr if e.stderr else str(e)))
+        
         env = get_git_env()
+        
+        # 获取当前分支名称
+        current_branch_result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        current_branch = current_branch_result.stdout.strip()
+        logger.info("当前分支：" + current_branch)
         
         result = subprocess.run(['git', 'fetch', 'origin'], check=True, cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True)
         logger.info("Fetch result: " + result.stdout)
+        
+        # 获取远程默认分支
+        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        if remote_head_result.returncode == 0:
+            remote_default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
+        else:
+            # 如果无法获取，尝试从远程获取
+            try:
+                remote_show_result = subprocess.run(['git', 'remote', 'show', 'origin'], cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True, timeout=30)
+                if remote_show_result.returncode == 0:
+                    for line in remote_show_result.stdout.split('\n'):
+                        if 'HEAD branch' in line:
+                            remote_default_branch = line.split(':')[-1].strip()
+                            break
+                    else:
+                        remote_default_branch = BLOG_BRANCH
+                else:
+                    remote_default_branch = BLOG_BRANCH
+            except:
+                remote_default_branch = BLOG_BRANCH
+        logger.info("远程默认分支：" + remote_default_branch)
         
         status_result = subprocess.run(['git', 'status', '--porcelain'], cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True)
         local_changes = status_result.stdout.strip() != ''
@@ -273,7 +382,8 @@ def pull_updates():
             subprocess.run(['git', 'stash', 'push', '-m', 'auto-stash-before-pull'], check=True, cwd=BLOG_CACHE_PATH, env=env, capture_output=True)
             logger.info("本地更改已暂存")
         
-        result = subprocess.run(['git', 'merge', 'origin/' + BLOG_BRANCH], check=True, cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True)
+        # 使用远程默认分支进行合并
+        result = subprocess.run(['git', 'merge', 'origin/' + remote_default_branch], check=True, cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True)
         logger.info("Merge result: " + result.stdout)
         
         if local_changes:
@@ -325,7 +435,15 @@ def init_local_git():
                 if has_remote:
                     return {"message": "初始化成功，仓库已连接", "status": "connected"}
                 else:
-                    return {"message": "仓库已初始化，请配置远程仓库地址", "status": "no_remote"}
+                    # 如果没有远程配置但提供了仓库地址，设置远程配置
+                    if git_repo:
+                        subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                        subprocess.run(['git', 'config', 'user.name', 'BlogEditor'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                        subprocess.run(['git', 'config', 'user.email', 'editor@blog.local'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                        logger.info("已设置远程仓库配置：" + git_repo)
+                        return {"message": "初始化成功，远程仓库已配置", "status": "remote_configured"}
+                    else:
+                        return {"message": "仓库已初始化，请配置远程仓库地址", "status": "no_remote"}
             except subprocess.CalledProcessError as e:
                 logger.warning("检查远程配置失败：" + (e.stderr if e.stderr else str(e)))
                 return {"message": "仓库已初始化，远程配置检查失败", "status": "remote_check_failed"}
@@ -391,7 +509,7 @@ def init_local_git():
         
         elif has_files and not git_repo:
             logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
-            subprocess.run(['git', 'init'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+            subprocess.run(['git', 'init', '-b', 'main'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             subprocess.run(['git', 'config', 'user.name', 'BlogEditor'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             subprocess.run(['git', 'config', 'user.email', 'editor@blog.local'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
@@ -425,7 +543,7 @@ def init_local_git():
                 logger.info("远程仓库克隆成功")
                 return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
             elif clone_error and 'empty repository' in clone_error.lower():
-                subprocess.run(['git', 'init'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+                subprocess.run(['git', 'init', '-b', 'main'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
                 subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
                 subprocess.run(['git', 'config', 'user.name', 'BlogEditor'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
                 subprocess.run(['git', 'config', 'user.email', 'editor@blog.local'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
@@ -442,7 +560,7 @@ def init_local_git():
         else:
             logger.info("本地无文件，无远程仓库配置，初始化空仓库")
             os.makedirs(BLOG_CACHE_PATH, exist_ok=True)
-            subprocess.run(['git', 'init'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+            subprocess.run(['git', 'init', '-b', 'main'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             subprocess.run(['git', 'config', 'user.name', 'BlogEditor'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             subprocess.run(['git', 'config', 'user.email', 'editor@blog.local'], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
             return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
@@ -457,6 +575,48 @@ def init_local_git():
         raise HTTPException(status_code=500, detail="初始化失败：" + str(e))
     finally:
         IS_INIT_WORKSPACE = False
+        # 同步本地分支名称与远程分支名称
+        try:
+            sync_branch_name()
+        except Exception as e:
+            logger.warning("同步分支名称失败：" + str(e))
+
+def sync_branch_name():
+    """同步本地分支名称与远程分支名称"""
+    try:
+        if not os.path.exists(os.path.join(BLOG_CACHE_PATH, '.git')):
+            return
+        
+        # 获取当前分支名称
+        current_branch_result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        if current_branch_result.returncode != 0:
+            return
+        current_branch = current_branch_result.stdout.strip()
+        
+        # 检查是否有远程配置
+        remote_result = subprocess.run(['git', 'remote', '-v'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        if 'origin' not in remote_result.stdout:
+            return
+        
+        # fetch 远程仓库信息
+        env = get_git_env()
+        subprocess.run(['git', 'fetch', 'origin'], cwd=BLOG_CACHE_PATH, env=env, capture_output=True, text=True, timeout=60)
+        
+        # 获取远程默认分支
+        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=BLOG_CACHE_PATH, capture_output=True, text=True)
+        if remote_head_result.returncode != 0:
+            return
+        remote_default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
+        
+        # 如果本地分支名称与远程分支名称不一致，重命名本地分支
+        if current_branch != remote_default_branch:
+            logger.info(f"本地分支 '{current_branch}' 与远程分支 '{remote_default_branch}' 不一致，正在重命名...")
+            subprocess.run(['git', 'branch', '-m', current_branch, remote_default_branch], cwd=BLOG_CACHE_PATH, check=True, capture_output=True)
+            # 设置跟踪远程分支
+            subprocess.run(['git', 'branch', '--set-upstream-to=origin/' + remote_default_branch, remote_default_branch], cwd=BLOG_CACHE_PATH, capture_output=True)
+            logger.info(f"已将本地分支重命名为 '{remote_default_branch}' 并设置跟踪远程分支")
+    except Exception as e:
+        logger.warning("同步分支名称时出错：" + str(e))
 
 def check_initializing():
     if IS_INIT_WORKSPACE:
@@ -498,7 +658,9 @@ def read_post_template() -> str:
         logger.error("模板文件未找到：" + NEW_BLOG_TEMPLATE_PATH)
         return '---\ntitle: {{title}}\ndate: {{date}}\ncategories: {{categories}}\n---\n\n'
 
-HIDDEN_FOLDERS = {'.git', '.github', '.idea', '.vscode', '.vs', 'node_modules', '.node_modules', '__pycache__', '.pytest_cache', '.mypy_cache', '.tox', '.eggs', '.history', '.Trash'}
+def is_allowed_file(filename: str) -> bool:
+    _, ext = os.path.splitext(filename)
+    return ext.lower() in ALLOWED_FILE_EXTENSIONS
 
 def should_hide_path(path: str) -> bool:
     parts = path.replace('\\', '/').split('/')
@@ -514,6 +676,8 @@ def get_files_recursive(directory: str) -> list:
             dirs[:] = [d for d in dirs if d not in HIDDEN_FOLDERS and not d.endswith('.egg-info')]
             
             for filename in filenames:
+                if not is_allowed_file(filename):
+                    continue
                 relative_path = os.path.relpath(os.path.join(root, filename), BLOG_CACHE_PATH)
                 if should_hide_path(relative_path):
                     continue
@@ -714,7 +878,9 @@ async def set_git_repo(request: Request):
         git_repo = data.get("gitRepo", "")
         if not git_repo:
             raise HTTPException(status_code=400, detail="Git repo URL is required")
-        # 不再保存到文件，仅返回成功
+        global BLOG_GIT_SSH
+        BLOG_GIT_SSH = git_repo
+        logger.info("Git 仓库配置已设置：" + git_repo)
         return JSONResponse(content={"message": "Git 仓库配置已设置"})
     except HTTPException:
         raise
@@ -845,9 +1011,14 @@ async def save_post(filename: str, request: Request):
         raise HTTPException(status_code=500, detail="保存帖子失败")
 
 @app.post("/api/init")
-def init_workspace():
+async def init_workspace(request: Request):
     try:
         check_initializing()
+        data = await request.json()
+        git_repo = data.get("gitRepo", "")
+        if git_repo:
+            global BLOG_GIT_SSH
+            BLOG_GIT_SSH = git_repo
         result = init_local_git()
         logger.info("工作区初始化成功")
         return JSONResponse(content=result if result else {"message": "初始化成功"})
@@ -992,4 +1163,5 @@ def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5000)
+    port = int(os.getenv('PORT', '13131'))
+    uvicorn.run(app, host="127.0.0.1", port=port)

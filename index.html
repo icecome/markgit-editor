@@ -600,9 +600,8 @@ if (typeof Vue !== 'undefined') {
                     confirmClass: 'btn-primary',
                     callback: async () => {
                         try {
-                            // 设置环境变量并重启服务，或者通过API传递
-                            // 这里我们暂时使用本地存储的方式
-                            const response = await axios.post('/api/init');
+                            // 传递仓库地址给后端
+                            const response = await axios.post('/api/init', { gitRepo: this.gitRepo });
                             await this.getFiles();
                             this.showToast(response.data.message || '初始化成功', 'success');
                         } catch (error) { this.errorHandler(error); }
@@ -729,7 +728,7 @@ if (typeof Vue !== 'undefined') {
                 this.modalVisible = false;
                 this.modalCallback = null;
             },
-            saveRepoConfig() { localStorage.setItem('gitRepo', this.gitRepo); this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); },
+            saveRepoConfig() { localStorage.setItem('gitRepo', this.gitRepo); axios.post('/api/git-repo', { gitRepo: this.gitRepo }).then(response => { this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); }).catch(error => { this.errorHandler(error); }); },
             showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => lucide.createIcons()); },
             hideContextMenu() { this.contextMenuVisible = false; this.contextMenuFile = null; },
             openFile() { if (this.contextMenuFile && this.contextMenuFile.type === 'file') this.selectFile(this.contextMenuFile); this.hideContextMenu(); },

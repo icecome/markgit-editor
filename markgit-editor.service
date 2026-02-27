@@ -8,8 +8,13 @@ Type=forking
 Restart=on-failure
 RestartSec=3s
 PIDFile=/path/to/markgit-editor/pid
-User=your-username
+User=USERNAME
 
 [Install]
 WantedBy=multi-user.target
+
+# 注意：使用前请将以下路径替换为实际安装路径
+# 1. 将 ExecStart 中的 /path/to/markgit-editor/ 替换为实际路径
+# 2. 将 PIDFile 中的 /path/to/markgit-editor/ 替换为实际路径
+# 3. 将 User 中的 USERNAME 替换为实际运行用户
 
