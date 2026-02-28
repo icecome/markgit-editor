@@ -20,6 +20,8 @@ blog_cache_remote_temp/
 .env.local
 .env.*.local
 
+.sessions/
+
 node_modules/
 
 .DS_Store

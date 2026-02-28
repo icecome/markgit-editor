@@ -65,6 +65,7 @@ const TreeNode = {
 
 if (typeof Vue !== 'undefined') {
     const { createApp } = Vue;
+    
     const app = createApp({
         components: { TreeNode },
         data() {
@@ -211,6 +212,19 @@ if (typeof Vue !== 'undefined') {
                     this.userId = userId;
                 }
             },
+            
+            saveRepoConfig() {
+                // 不保存到 localStorage，只发送到后端
+                axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() })
+                    .then(response => { 
+                        this.closePanel(); 
+                        this.showToast('配置已保存，请点击初始化按钮', 'success'); 
+                    })
+                    .catch(error => { 
+                        this.errorHandler(error); 
+                    }); 
+            },
+            
             toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
             selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
             async commit() {
@@ -286,7 +300,7 @@ if (typeof Vue !== 'undefined') {
             showNewFilePanelAt(path) { this.currentDirectory = path; this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
             showNewFolderPanel() { this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
             showNewFolderPanelAt(path) { this.currentDirectory = path; this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showConfigPanel() { this.panelTitle = 'Git仓库配置'; this.panelType = 'config'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
+            showConfigPanel() { this.panelTitle = '使用说明'; this.panelType = 'config'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
             showThemePanel() { this.panelTitle = '主题与设置'; this.panelType = 'theme'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
             setTheme(theme) {
                 this.currentTheme = theme; localStorage.setItem('theme', theme);
@@ -442,17 +456,7 @@ if (typeof Vue !== 'undefined') {
             showModal(options) { this.modalTitle = options.title || '确认'; this.modalMessage = options.message || ''; this.modalType = options.type || 'info'; this.modalIcon = options.icon || 'info'; this.modalDetails = options.details || []; this.modalConfirmClass = options.confirmClass || 'btn-primary'; this.modalCallback = options.callback || null; this.modalVisible = true; this.$nextTick(() => lucide.createIcons()); },
             confirmModal() { this.modalVisible = false; if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; } },
             cancelModal() { this.modalVisible = false; this.modalCallback = null; },
-            saveRepoConfig() { 
-                // 不保存到 localStorage，只发送到后端
-                axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() })
-                    .then(response => { 
-                        this.closePanel(); 
-                        this.showToast('配置已保存，请点击初始化按钮', 'success'); 
-                    })
-                    .catch(error => { 
-                        this.errorHandler(error); 
-                    }); 
-            },
+
             saveExcludePatterns() {
                 localStorage.setItem('excludePatterns', this.excludePatterns);
                 localStorage.setItem('simplePatterns', this.simplePatterns);
@@ -510,6 +514,11 @@ if (typeof Vue !== 'undefined') {
             lucide.createIcons();
             await this.createOrUseSession();
             await this.initApp();
+            
+            // 初始化 OAuth 组件（如果可用）
+            if (typeof oauth !== 'undefined') {
+                oauth.init();
+            }
         },
         beforeUnmount() {
             if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }

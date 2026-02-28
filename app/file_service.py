@@ -98,18 +98,52 @@ def pretty_git_status(status_result: list) -> list:
             return post_yaml.get('title', '') if post_yaml else ''
         return ''
 
+    # 需要过滤的系统目录和文件
+    system_paths = {
+        '.sessions', '.git', '.github', '.vscode', '.idea',
+        '__pycache__', '.pytest_cache', 'node_modules',
+        '.env', '.env.local', '.env.*.local'
+    }
+    
+    # 统计删除的文件数量
+    delete_count = sum(1 for s in status_result if s.strip().startswith('D '))
+    
+    # 如果删除文件超过 20 个，说明可能是仓库初始化，不显示删除信息
+    is_initialization = delete_count > 20
+    
     status_result_for_show = []
     for status in status_result:
+        # 去除首尾空格
+        status = status.strip()
+        
+        # 跳过空行
+        if not status:
+            continue
+            
+        # 跳过以 "Am" 开头的行（这是 Git 的特殊状态标记）
+        if status.startswith('Am'):
+            continue
+        
         parts = status.split(maxsplit=1)
         if len(parts) < 2:
             status_result_for_show.append(status)
             continue
         flag, filepath = parts
-        if flag == 'M':
+        
+        # 过滤掉系统目录的变更
+        first_part = filepath.split('/')[0]
+        if first_part in system_paths or filepath.startswith('.sessions/') or filepath.startswith('.git/'):
+            continue
+        
+        # 如果是仓库初始化，不显示删除信息
+        if is_initialization and (flag == 'D' or flag == ' D'):
+            continue
+        
+        if flag == 'M' or flag == ' M' or flag == 'M ':
             status_result_for_show.append("Modified " + _get_title(filepath) + " " + filepath)
-        elif flag == 'A':
+        elif flag == 'A' or flag == ' A' or flag == 'A ':
             status_result_for_show.append("Added " + _get_title(filepath) + " " + filepath)
-        elif flag == 'D':
+        elif flag == 'D' or flag == ' D' or flag == 'D ':
             status_result_for_show.append("Deleted " + filepath)
         elif flag == '??':
             status_result_for_show.append("Untracked " + filepath)
@@ -117,6 +151,8 @@ def pretty_git_status(status_result: list) -> list:
             status_result_for_show.append("Renamed " + filepath)
         else:
             status_result_for_show.append(status)
+    
+    # 如果过滤后没有任何变更，返回空列表
     return status_result_for_show
 
 def read_post_template() -> str:

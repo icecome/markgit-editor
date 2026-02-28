@@ -7,6 +7,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import app.config as config
+from app.auth.token_store import token_store
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,25 @@ def get_current_cache_path() -> str:
     if hasattr(_current_session_path, 'value') and _current_session_path.value:
         return _current_session_path.value
     return config.BLOG_CACHE_PATH
+
+def setup_git_context(session_id: str):
+    """设置 Git 操作上下文（会话路径）"""
+    if session_id:
+        from app.session_manager import session_manager
+        session_data = session_manager.get_session(session_id)
+        if session_data and 'path' in session_data:
+            set_current_session_path(session_data['path'])
+
+def get_oauth_token(session_id: str) -> Optional[str]:
+    """获取 OAuth 访问令牌"""
+    if not session_id:
+        return None
+    
+    token_info = token_store.get(session_id)
+    if not token_info:
+        return None
+    
+    return token_info.get("access_token")
 
 def sanitize_for_log(text: str) -> str:
     if not text:
@@ -43,15 +63,27 @@ def sanitize_for_log(text: str) -> str:
         return text[:10] + '***' + text[-5:]
     return '***'
 
-def get_git_env() -> dict:
+def get_git_env(session_id: Optional[str] = None) -> dict:
+    """获取 Git 环境变量，支持 OAuth 令牌"""
     env = os.environ.copy()
     git_repo = config.BLOG_GIT_SSH
-    if git_repo and (git_repo.startswith('git@') or git_repo.startswith('ssh://')):
+    
+    # 检查是否有 OAuth 令牌
+    oauth_token = get_oauth_token(session_id) if session_id else None
+    
+    if oauth_token:
+        # 使用 OAuth 令牌进行 HTTPS 认证
+        logger.info("使用 OAuth 令牌进行 Git 认证")
+        # 设置临时环境变量用于 Git 操作
+        env['MARKGIT_OAUTH_TOKEN'] = oauth_token
+    elif git_repo and (git_repo.startswith('git@') or git_repo.startswith('ssh://')):
+        # 使用 SSH 认证
         ssh_options = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=30'
         if config.GIT_SSH_KEY_PATH and os.path.exists(config.GIT_SSH_KEY_PATH):
             env['GIT_SSH_COMMAND'] = f'ssh -i {config.GIT_SSH_KEY_PATH} {ssh_options}'
         else:
             env['GIT_SSH_COMMAND'] = f'ssh {ssh_options}'
+    
     return env
 
 def ensure_git_remote_config(git_repo: str = None):
@@ -94,18 +126,27 @@ def configure_git_user():
 def git_status() -> list:
     try:
         cache_path = get_current_cache_path()
+        logger.info(f"Git status 操作目录：{cache_path}")
         output = subprocess.run(['git', 'status', '-s'], cwd=cache_path, capture_output=True, check=True)
-        return [line.strip() for line in output.stdout.decode('utf-8').splitlines()]
+        status_lines = [line.strip() for line in output.stdout.decode('utf-8').splitlines()]
+        logger.info(f"Git status 结果：{len(status_lines)} 行变更")
+        for line in status_lines[:5]:  # 只显示前 5 行
+            logger.info(f"  - {line}")
+        if len(status_lines) > 5:
+            logger.info(f"  ... 还有 {len(status_lines) - 5} 行")
+        return status_lines
     except subprocess.CalledProcessError as e:
-        logger.error("Git status 失败：" + str(e))
+        logger.error(f"Git status 失败：{e}, stderr: {e.stderr.decode('utf-8', errors='ignore')}")
         return []
 
 def git_add():
     try:
         cache_path = get_current_cache_path()
-        subprocess.run(['git', 'add', '-A'], cwd=cache_path, check=True)
+        logger.info(f"Git add 操作目录：{cache_path}")
+        result = subprocess.run(['git', 'add', '-A'], cwd=cache_path, capture_output=True, check=True)
+        logger.info(f"Git add 成功，输出：{result.stdout.decode('utf-8', errors='ignore')[:200]}")
     except subprocess.CalledProcessError as e:
-        logger.error("Git add 失败：" + str(e))
+        logger.error(f"Git add 失败：{e}, stderr: {e.stderr.decode('utf-8', errors='ignore')}")
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail="Git add 操作失败")
 
@@ -150,7 +191,7 @@ def deploy():
         logger.error("部署失败：" + str(e))
         raise HTTPException(status_code=500, detail="部署失败")
 
-def git_commit():
+def git_commit(session_id: Optional[str] = None):
     from fastapi import HTTPException
     from app.file_service import pretty_git_status
     try:
@@ -166,7 +207,7 @@ def git_commit():
             commit_msg.append(line)
         commit_cmd.extend(commit_msg)
         
-        env = get_git_env()
+        env = get_git_env(session_id)
         cache_path = get_current_cache_path()
         commit_result = subprocess.run(commit_cmd, cwd=cache_path, check=True, env=env, capture_output=True, text=True)
         logger.info("提交成功：" + commit_result.stdout)
@@ -213,7 +254,7 @@ def git_commit():
         logger.error("提交失败：" + str(e))
         raise HTTPException(status_code=500, detail="提交失败：" + str(e))
 
-async def pull_updates_async():
+async def pull_updates_async(session_id: Optional[str] = None):
     from fastapi import HTTPException
     cache_path = get_current_cache_path()
     
@@ -221,7 +262,7 @@ async def pull_updates_async():
         raise HTTPException(status_code=400, detail="不是 Git 仓库，请先初始化")
     
     ensure_git_remote_config()
-    env = get_git_env()
+    env = get_git_env(session_id)
     
     current_branch = get_current_branch()
     logger.info("当前分支：" + current_branch)
@@ -296,11 +337,12 @@ async def pull_updates_async():
     
     logger.info("已拉取远程最新更改")
 
-async def init_local_git_async(session_path: str = None):
+async def init_local_git_async(session_path: str = None, session_id: Optional[str] = None):
     """初始化本地 Git 仓库
     
     Args:
         session_path: 会话路径，如果不提供则使用全局 BLOG_CACHE_PATH
+        session_id: OAuth 会话 ID，用于获取访问令牌
     """
     from fastapi import HTTPException
     
@@ -314,7 +356,7 @@ async def init_local_git_async(session_path: str = None):
         for f in os.listdir(cache_path) if f != '.git'
     ) if os.path.exists(cache_path) else False
     
-    env = get_git_env()
+    env = get_git_env(session_id)
     
     if has_git:
         logger.info("Git 仓库已存在，检查远程配置")

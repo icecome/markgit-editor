@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger
 from app.routes import router
 from app.cleanup_service import cleanup_service
+from app.auth.routes import router as auth_router
 
 app = FastAPI(title="MarkGit Editor API", version="1.2.0")
 
@@ -21,7 +22,9 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-app.include_router(router, prefix="/api")
+# 先注册 OAuth 路由（优先级更高，避免被通配符路由拦截）
+app.include_router(auth_router, prefix="/api")  # OAuth 认证路由
+app.include_router(router, prefix="/api")  # 主路由（包含通配符）
 
 @app.get("/")
 def root():

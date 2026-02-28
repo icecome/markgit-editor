@@ -80,10 +80,11 @@ class SessionManager:
         
         # 如果是老用户，清理旧会话（单用户单会话策略）
         if clean_old and user_id:
-            old_session = self.get_session_by_user_id(user_id)
-            if old_session:
+            old_session_result = self.get_session_by_user_id(user_id)
+            if old_session_result:
+                old_session_id, old_session_data = old_session_result
                 logger.info(f"清理用户 {user_id[:8]}... 的旧会话")
-                self.delete_session(old_session['id'])
+                self.delete_session(old_session_id)
         
         self.sessions[session_id] = {
             'user_id': user_id,
@@ -100,18 +101,18 @@ class SessionManager:
         logger.info(f"创建新会话：{session_id[:8]}... 用户：{user_id[:8]}...")
         return session_id, session_path
     
-    def get_session_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_by_user_id(self, user_id: str) -> Optional[tuple]:
         """根据 user_id 获取会话
         
         Args:
             user_id: 用户 ID
             
         Returns:
-            会话信息，如果不存在则返回 None
+            (session_id, session_data) 元组，如果不存在则返回 None
         """
-        for session_data in self.sessions.values():
+        for session_id, session_data in self.sessions.items():
             if session_data.get('user_id') == user_id:
-                return session_data
+                return (session_id, session_data)
         return None
     
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -195,10 +196,16 @@ class SessionManager:
                 shutil.rmtree(session_path, ignore_errors=True)
                 logger.info(f"已删除会话数据：{session_path}")
             
+            # 获取 user_id 用于日志
+            user_id = self.sessions[session_id].get('user_id', 'unknown')
+            
             del self.sessions[session_id]
             self._save_sessions()
-            logger.info(f"已删除会话：{session_id[:8]}...")
+            logger.info(f"已删除会话：{session_id[:8]}... (user: {user_id[:8]}...)")
             return True
+        except KeyError as e:
+            logger.warning(f"会话 {session_id[:8]}... 已被删除")
+            return False
         except Exception as e:
             logger.error(f"删除会话失败：{e}")
             return False
@@ -308,15 +315,6 @@ class SessionManager:
                 pass
         
         return active_count
-    
-    def cleanup_all_sessions(self):
-        """清理所有会话数据（用于服务器重启后重置）"""
-        logger.info("开始清理所有会话数据...")
-        
-        for session_id in list(self.sessions.keys()):
-            self.delete_session(session_id)
-        
-        logger.info("已清理所有会话数据")
     
     def cleanup_invalid_sessions(self) -> int:
         """清理无效会话（目录不存在）

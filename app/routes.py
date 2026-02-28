@@ -315,8 +315,10 @@ def get_categories():
         raise HTTPException(status_code=500, detail="获取分类失败")
 
 @router.get("/posts/changes", response_model=ApiResponse)
-def get_post_changes():
+def get_post_changes(x_session_id: Optional[str] = Header(None)):
     try:
+        # 设置会话上下文
+        setup_git_context(x_session_id)
         delete_image_not_included()
         git_add()
         status_result_for_show = pretty_git_status(git_status())
@@ -500,7 +502,8 @@ def get_user_id():
         raise HTTPException(status_code=500, detail="生成用户 ID 失败：" + str(e))
 
 @router.post("/init", response_model=ApiResponse)
-async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Header(None)):
+async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Header(None),
+                         x_oauth_session_id: Optional[str] = Header(None)):
     """初始化工作区，支持多用户隔离
     
     初始化策略:
@@ -522,8 +525,8 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
                 if x_session_id:
                     session_manager.update_session_git_repo(x_session_id, request.gitRepo)
             
-            # 传递会话路径给初始化函数
-            result = await init_local_git_async(session_path=base_path)
+            # 传递会话路径和 OAuth session_id 给初始化函数
+            result = await init_local_git_async(session_path=base_path, session_id=x_oauth_session_id)
             
             if x_session_id and result.get('status') in ['connected', 'remote_configured', 'cloned']:
                 session_manager.mark_session_initialized(x_session_id)
@@ -542,12 +545,14 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
                 logger.warning("同步分支名称失败：" + str(e))
 
 @router.post("/pull", response_model=ApiResponse)
-async def pull_repo(x_session_id: Optional[str] = Header(None)):
+async def pull_repo(x_session_id: Optional[str] = Header(None),
+                    x_oauth_session_id: Optional[str] = Header(None)):
     """拉取远程更新，支持会话隔离"""
     async with git_operation_lock:
         try:
             setup_git_context(x_session_id)
-            await pull_updates_async()
+            # 传递 OAuth session_id 用于获取访问令牌
+            await pull_updates_async(session_id=x_oauth_session_id)
             logger.info("已成功拉取最新更改")
             return ApiResponse(message="拉取成功")
         except HTTPException:
@@ -593,11 +598,13 @@ async def soft_reset(x_session_id: Optional[str] = Header(None)):
             raise HTTPException(status_code=500, detail="软重置工作区失败")
 
 @router.post("/commit", response_model=ApiResponse)
-async def commit(x_session_id: Optional[str] = Header(None)):
+async def commit(x_session_id: Optional[str] = Header(None), 
+                 x_oauth_session_id: Optional[str] = Header(None)):
     async with git_operation_lock:
         try:
             setup_git_context(x_session_id)
-            git_commit()
+            # 传递 OAuth session_id 用于获取访问令牌
+            git_commit(session_id=x_oauth_session_id)
             logger.info("更改已提交并推送")
             return ApiResponse(message="更改已提交并推送")
         except HTTPException:

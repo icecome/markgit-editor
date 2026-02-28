@@ -176,6 +176,9 @@
                     <i data-lucide="git-pull-request" style="width: 14px; height: 14px;"></i>
                     <span>拉取</span>
                 </button>
+                <!-- OAuth 登录按钮容器 -->
+                <div id="oauth-container" style="display: inline-flex; align-items: center;"></div>
+                
                 <button class="btn btn-ghost" @click="showThemePanel()" title="主题设置">
                     <i data-lucide="palette" style="width: 14px; height: 14px;"></i>
                 </button>
@@ -244,7 +247,8 @@
             <div class="sidebar-footer">
                 <div style="font-size: 12px; color: #9ca3af;">
                     <i data-lucide="git-branch" style="width: 12px; height: 12px; display: inline; vertical-align: middle;"></i>
-                    {{ gitRepo ? gitRepo.split('/').pop().replace('.git', '') : '未配置' }}
+                    <span v-if="gitRepo">{{ gitRepo.split('/').pop().replace('.git', '') }}</span>
+                    <span v-else>未配置</span>
                 </div>
             </div>
         </div>
@@ -373,8 +377,8 @@
                 <div class="settings-panel-content">
                     <div class="form-group">
                         <label class="form-label">Git 仓库地址</label>
-                        <input type="text" class="form-input" v-model="gitRepo" placeholder="输入 Git 仓库 SSH 或 HTTPS 地址">
-                        <p class="form-hint">支持 SSH 和 HTTPS 两种方式</p>
+                        <input type="text" class="form-input" v-model="gitRepo" placeholder="输入 Git 仓库 HTTPS 地址，如：https://github.com/username/repo.git">
+                        <p class="form-hint">使用 OAuth 登录后，系统将自动使用您的 GitHub 凭证进行认证</p>
                     </div>
                     <div class="form-actions">
                         <button class="btn btn-secondary" @click="closePanel">取消</button>
@@ -705,7 +709,10 @@
             </div>
         </div>
     </div>
+    
 </div>
-<script src="/static/main.js"></script>
+
+<script src="/static/oauth-component.js"></script>
+  <script src="/static/main.js"></script>
 </body>
 </html>
