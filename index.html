@@ -13,6 +13,141 @@
     <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/main.css">
+    <style>
+        /* 设置面板样式优化 */
+        .settings-panel-content {
+            max-height: 70vh;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+        
+        /* 隐藏浏览器默认滚动条 */
+        .settings-panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .settings-panel-content::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+        .settings-panel-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+        .settings-panel-content::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-color);
+        }
+        
+        .section-subtitle {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 12px 0 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        /* 紧凑模板按钮 */
+        .pattern-templates {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .pattern-template {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 80px;
+            flex: 0 0 auto;
+        }
+        .pattern-template:hover {
+            border-color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.05);
+            transform: translateY(-1px);
+        }
+        .pattern-template code {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 5px;
+            border-radius: 3px;
+            align-self: flex-start;
+        }
+        .pattern-template span {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            white-space: nowrap;
+        }
+        
+        .regex-help {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+        }
+        .help-item {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            line-height: 1.4;
+        }
+        .help-item:last-child {
+            margin-bottom: 0;
+        }
+        .help-item code {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 1px 4px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        
+        /* 表单优化 */
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            display: block;
+        }
+        .form-textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        
+        .section-divider {
+            border-top: 1px solid var(--border-color);
+            margin: 12px 0;
+        }
+    </style>
 </head>
 <body>
 <div id="app">
@@ -235,15 +370,174 @@
             </div>
 
             <div v-if="panelType === 'config'">
+                <div class="settings-panel-content">
+                    <div class="form-group">
+                        <label class="form-label">Git 仓库地址</label>
+                        <input type="text" class="form-input" v-model="gitRepo" placeholder="输入 Git 仓库 SSH 或 HTTPS 地址">
+                        <p class="form-hint">支持 SSH 和 HTTPS 两种方式</p>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" @click="closePanel">取消</button>
+                        <button class="btn btn-primary" @click="saveRepoConfig">保存配置</button>
+                    </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-title">
+                    <i data-lucide="file-x" style="width: 16px; height: 16px;"></i>
+                    文件显示设置
+                </div>
+                
                 <div class="form-group">
-                    <label class="form-label">Git 仓库地址</label>
-                    <input type="text" class="form-input" v-model="gitRepo" placeholder="输入Git仓库SSH或HTTPS地址">
-                    <p class="form-hint">支持 SSH 和 HTTPS 两种方式</p>
+                    <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>显示模式</span>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" v-model="useWhitelist" style="cursor: pointer;">
+                            <span style="font-size: 13px; font-weight: normal;">只显示常用文本文件</span>
+                        </label>
+                    </label>
+                    <p class="form-hint">启用后只显示 .md, .txt, .toml, .yaml, .yml, .json 等配置文件</p>
+                </div>
+                
+                <div class="form-group" v-if="useWhitelist">
+                    <label class="form-label">白名单例外（每行一个）</label>
+                    <textarea class="form-textarea" v-model="whitelistExceptions" rows="4" placeholder="src/&#10;assets/&#10;config.json&#10;package.json"></textarea>
+                    <p class="form-hint">
+                        在白名单模式下允许显示的额外目录/文件
+                        <br>示例：<code>src/</code> 显示 src 目录 | <code>config.json</code> 显示该文件
+                    </p>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-title">
+                    <i data-lucide="square-x" style="width: 16px; height: 16px;"></i>
+                    排除规则
+                </div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="type" style="width: 14px; height: 14px;"></i>
+                    简单模式（推荐）
+                </div>
+                <div class="form-group">
+                    <label class="form-label">排除后缀、文件名或目录（每行一个）</label>
+                    <textarea class="form-textarea" v-model="simplePatterns" rows="6" placeholder=".css&#10;.js&#10;.html&#10;dist/&#10;node_modules/"></textarea>
+                    <p class="form-hint">
+                        示例：<code>.css</code> 排除 CSS 文件 | <code>test.txt</code> 排除特定文件 | <code>dist/</code> 排除目录
+                    </p>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="square-check" style="width: 14px; height: 14px;"></i>
+                    正则表达式模式（高级）
+                </div>
+                <div class="form-group">
+                    <label class="form-label">正则表达式排除（每行一个）</label>
+                    <textarea class="form-textarea" v-model="excludePatterns" rows="6" placeholder=".*\.css$&#10;.*\.html$&#10;^temp/"></textarea>
+                    <p class="form-hint">支持正则表达式，保存后刷新页面生效</p>
+                </div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i>
+                    简单模式模板（点击添加）
+                </div>
+                <div class="pattern-templates">
+                    <div class="pattern-template" @click="addSimplePattern('.css')" title="排除 .css 文件">
+                        <code>.css</code>
+                        <span>CSS 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.js')" title="排除 .js 文件">
+                        <code>.js</code>
+                        <span>JS 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.html')" title="排除 .html 文件">
+                        <code>.html</code>
+                        <span>HTML 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.log')" title="排除 .log 文件">
+                        <code>.log</code>
+                        <span>日志文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('dist/')" title="排除 dist 目录">
+                        <code>dist/</code>
+                        <span>dist 目录</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('node_modules/')" title="排除 node_modules 目录">
+                        <code>node_modules/</code>
+                        <span>node_modules</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.git/')" title="排除 .git 目录">
+                        <code>.git/</code>
+                        <span>.git 目录</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('build/')" title="排除 build 目录">
+                        <code>build/</code>
+                        <span>build 目录</span>
+                    </div>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="book-open" style="width: 14px; height: 14px;"></i>
+                    正则表达式模板（点击添加）
+                </div>
+                <div class="pattern-templates">
+                    <div class="pattern-template" @click="addPattern('.*\\.css$')" title="排除任意目录下的 .css 文件">
+                        <code>.*\.css$</code>
+                        <span>排除 CSS 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.html$')" title="排除任意目录下的 .html 文件">
+                        <code>.*\.html$</code>
+                        <span>排除 HTML 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.js$')" title="排除任意目录下的 .js 文件">
+                        <code>.*\.js$</code>
+                        <span>排除 JS 文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('^\\.')" title="排除隐藏文件和目录">
+                        <code>^\.</code>
+                        <span>排除隐藏文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.log$')" title="排除日志文件">
+                        <code>.*\.log$</code>
+                        <span>排除日志文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('^dist/')" title="排除 dist 目录">
+                        <code>^dist/</code>
+                        <span>排除 dist 目录</span>
+                    </div>
+                </div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="circle-help" style="width: 14px; height: 14px;"></i>
+                    使用说明
+                </div>
+                <div class="regex-help">
+                    <div class="help-item">
+                        <strong>简单模式：</strong>
+                        <code>.css</code> 排除后缀 | 
+                        <code>file.txt</code> 排除文件 | 
+                        <code>dist/</code> 排除目录
+                    </div>
+                    <div class="help-item">
+                        <strong>正则表达式：</strong>
+                        <code>.*</code> 任意字符 | 
+                        <code>\.</code> 点号 | 
+                        <code>$</code> 结尾 | 
+                        <code>^</code> 开头
+                    </div>
+                    <div class="help-item">
+                        <strong>白名单：</strong> 启用后只显示 .md, .txt, .toml, .yaml, .yml, .json 等文本/配置文件
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>
-                    <button class="btn btn-primary" @click="saveRepoConfig">保存配置</button>
+                    <button class="btn btn-primary" @click="saveExcludePatterns">保存设置</button>
                 </div>
+                </div> <!-- 结束 settings-panel-content -->
             </div>
 
             <div v-if="panelType === 'theme'">

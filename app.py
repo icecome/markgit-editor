@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger
 from app.routes import router
+from app.cleanup_service import cleanup_service
 
-app = FastAPI(title="MarkGit Editor API", version="1.1.0")
+app = FastAPI(title="MarkGit Editor API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,11 +36,26 @@ def startup_event():
             os.makedirs(os.path.join(BLOG_CACHE_PATH, 'archetypes'), exist_ok=True)
             with open(os.path.join(BLOG_CACHE_PATH, 'archetypes', 'posts.md'), 'w', encoding='utf-8') as f:
                 f.write('---\ntitle: {{title}}\ndate: {{date}}\ncategories: {{categories}}\n---\n\n')
-        logger.info("应用启动完成")
+        
+        # 服务器重启时清理所有会话（激进策略）
+        from app.session_manager import session_manager
+        logger.info("服务器重启，清理所有会话数据...")
+        session_manager.cleanup_all_sessions()
+        
+        cleanup_service.start()
+        logger.info("应用启动完成，清理服务已启动")
     except Exception as e:
         logger.error("初始化工作区失败：" + str(e))
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail="初始化工作区失败")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    try:
+        cleanup_service.stop()
+        logger.info("清理服务已停止")
+    except Exception as e:
+        logger.error("停止清理服务失败：" + str(e))
 
 if __name__ == "__main__":
     port = int(os.getenv('PORT', '13131'))

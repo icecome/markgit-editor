@@ -71,7 +71,7 @@ if (typeof Vue !== 'undefined') {
             return {
                 contentEditor: null, files: [], fileTree: [], expandedPaths: new Set(),
                 selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
-                loading: false, gitRepo: localStorage.getItem('gitRepo') || '', sidebarCollapsed: false, panelOpen: false,
+                loading: false, gitRepo: '', sidebarCollapsed: false, panelOpen: false,
                 panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
                 newFolderName: '', renameFile_: null, renameNewName: '', moveFile_: null,
                 moveSourcePath: '', moveDestPath: '', contextMenuVisible: false,
@@ -85,7 +85,15 @@ if (typeof Vue !== 'undefined') {
                 editorMode: localStorage.getItem('editorMode') || 'wysiwyg',
                 hasUnsavedChanges: false,
                 saving: false,
-                lastSavedContent: ''
+                lastSavedContent: '',
+                sessionId: sessionStorage.getItem('sessionId') || '',  // 使用 sessionStorage
+                userId: localStorage.getItem('userId') || '',  // userId 持久化
+                repositoryInitialized: false,
+                hasRemote: false,
+                excludePatterns: localStorage.getItem('excludePatterns') || '',
+                simplePatterns: localStorage.getItem('simplePatterns') || '',
+                useWhitelist: localStorage.getItem('useWhitelist') === 'true',
+                whitelistExceptions: localStorage.getItem('whitelistExceptions') || ''
             };
         },
         computed: {
@@ -93,12 +101,115 @@ if (typeof Vue !== 'undefined') {
             folderCount() { return this.files.filter(f => f.type === 'directory').length; }
         },
         methods: {
-            getHeaders() { return { 'Content-Type': 'application/json' }; },
-            initApp() {
-                this.getFiles();
+            getHeaders() {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.sessionId) {
+                    headers['X-Session-ID'] = this.sessionId;
+                }
+                return headers;
+            },
+            async initApp() {
+                await this.checkSessionStatus();
+                
+                // 获取后端保存的 Git 仓库配置
                 axios.get('/api/git-repo', { headers: this.getHeaders() })
-                    .then(response => { if (response.data && response.data.data) { this.gitRepo = response.data.data.gitRepo || ''; } })
+                    .then(response => { 
+                        if (response.data && response.data.data) { 
+                            const backendGitRepo = response.data.data.gitRepo || '';
+                            // 只有当会话有效时才使用后端配置
+                            if (this.sessionId && this.repositoryInitialized) {
+                                this.gitRepo = backendGitRepo;
+                            } else {
+                                // 会话无效或无配置，清空 gitRepo
+                                this.gitRepo = '';
+                            }
+                        } 
+                    })
                     .catch(error => console.error('Failed to get git repo config:', error));
+                
+                this.getFiles();
+            },
+            async checkSessionStatus() {
+                if (!this.sessionId) {
+                    this.repositoryInitialized = false;
+                    this.hasRemote = false;
+                    return;
+                }
+                try {
+                    const response = await axios.get('/api/session/status', { headers: this.getHeaders() });
+                    if (response.data && response.data.data) {
+                        this.repositoryInitialized = response.data.data.initialized || false;
+                        this.hasRemote = response.data.data.hasRemote || false;
+                    }
+                } catch (error) {
+                    console.error('Failed to check session status:', error);
+                    this.repositoryInitialized = false;
+                    this.hasRemote = false;
+                }
+            },
+            async createOrUseSession() {
+                // 确保有 userId
+                if (!this.userId) {
+                    await this.initUserId();
+                }
+                
+                if (this.sessionId) {
+                    await this.checkSessionStatus();
+                    // 如果会话无效，清除旧会话创建新会话
+                    if (!this.repositoryInitialized && !this.hasRemote) {
+                        const statusResponse = await axios.get('/api/session/status', { headers: this.getHeaders() });
+                        if (!statusResponse.data.data || !statusResponse.data.data.initialized) {
+                            // 会话确实无效，清除并重新创建
+                            sessionStorage.removeItem('sessionId');
+                            this.sessionId = '';
+                            this.gitRepo = '';
+                        }
+                    }
+                    if (this.sessionId) {
+                        return;
+                    }
+                }
+                
+                try {
+                    // 创建新会话，传递 userId（单用户单会话策略）
+                    const headers = {
+                        ...this.getHeaders(),
+                        'X-User-ID': this.userId
+                    };
+                    const response = await axios.get('/api/session/create', { headers });
+                    if (response.data && response.data.data) {
+                        this.sessionId = response.data.data.sessionId;
+                        sessionStorage.setItem('sessionId', this.sessionId);  // 使用 sessionStorage
+                        this.gitRepo = ''; // 新会话不保留 Git 配置
+                        await this.checkSessionStatus();
+                        this.showToast('新会话已创建，请配置远程仓库地址', 'success');
+                    }
+                } catch (error) {
+                    console.error('Failed to create session:', error);
+                }
+            },
+            
+            async initUserId() {
+                // 从 localStorage 获取 userId，如果没有则生成新的
+                let userId = localStorage.getItem('userId');
+                if (!userId) {
+                    try {
+                        const response = await axios.get('/api/session/user-id');
+                        if (response.data && response.data.data) {
+                            userId = response.data.data.userId;
+                            localStorage.setItem('userId', userId);
+                            this.userId = userId;
+                        }
+                    } catch (error) {
+                        console.error('Failed to initialize user ID:', error);
+                        // 如果 API 失败，生成一个临时的 userId
+                        userId = 'user_' + Date.now();
+                        localStorage.setItem('userId', userId);
+                        this.userId = userId;
+                    }
+                } else {
+                    this.userId = userId;
+                }
             },
             toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
             selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
@@ -126,13 +237,44 @@ if (typeof Vue !== 'undefined') {
             },
             toggleExpand(path) { if (this.expandedPaths.has(path)) this.expandedPaths.delete(path); else this.expandedPaths.add(path); this.expandedPaths = new Set(this.expandedPaths); },
             async initWorkspace() {
-                if (!this.gitRepo) { this.showToast('请先配置Git仓库地址', 'error'); return; }
+                if (!this.gitRepo) { this.showToast('请先配置 Git 仓库地址', 'error'); return; }
+                
+                await this.checkSessionStatus();
+                
+                let modalDetails = [];
+                let modalTitle = '初始化仓库';
+                
+                if (this.repositoryInitialized && this.hasRemote) {
+                    modalTitle = '仓库已连接';
+                    modalDetails = [
+                        '当前仓库已经初始化并连接了远程仓库',
+                        '您可以选择：',
+                        '- 点击确认重新初始化（会保留本地文件）',
+                        '- 取消以使用现有仓库'
+                    ];
+                } else if (this.repositoryInitialized && !this.hasRemote) {
+                    modalDetails = [
+                        '当前仓库已初始化但未配置远程仓库',
+                        '将为您配置远程仓库地址：' + this.gitRepo
+                    ];
+                } else {
+                    modalDetails = [
+                        '如果已配置远程仓库地址，将自动克隆到本地',
+                        '如果本地已有文件，将被保留'
+                    ];
+                }
+                
                 this.showModal({
-                    title: '初始化仓库', message: '是否确定初始化仓库？', type: 'info', icon: 'git-branch-plus',
-                    details: ['如果已配置远程仓库地址，将自动克隆到本地', '如果本地已有文件，将被保留'],
+                    title: modalTitle, message: '是否确定初始化仓库？', type: 'info', icon: 'git-branch-plus',
+                    details: modalDetails,
                     confirmClass: 'btn-primary',
                     callback: async () => {
-                        try { const response = await axios.post('/api/init', { gitRepo: this.gitRepo }, { headers: this.getHeaders() }); await this.getFiles(); this.showToast(response.data.message || '初始化成功', 'success'); } catch (error) { this.errorHandler(error); }
+                        try {
+                            const response = await axios.post('/api/init', { gitRepo: this.gitRepo }, { headers: this.getHeaders() });
+                            await this.getFiles();
+                            await this.checkSessionStatus();
+                            this.showToast(response.data.message || '初始化成功', 'success');
+                        } catch (error) { this.errorHandler(error); }
                     }
                 });
             },
@@ -221,7 +363,40 @@ if (typeof Vue !== 'undefined') {
             },
             async getFiles() {
                 this.loading = true;
-                try { const response = await axios.get('/api/files', { headers: this.getHeaders() }); this.files = response.data.data || []; this.buildFileTree(); }
+                try {
+                    // 获取并发送所有过滤规则
+                    const excludePatterns = this.getExcludePatterns();
+                    const simplePatterns = this.getSimplePatterns();
+                    const whitelistExceptions = this.getWhitelistExceptions();
+                    const headers = {
+                        ...this.getHeaders(),
+                        'X-Exclude-Patterns': JSON.stringify(excludePatterns),
+                        'X-Simple-Patterns': JSON.stringify(simplePatterns),
+                        'X-Use-Whitelist': this.useWhitelist ? 'true' : 'false',
+                        'X-Whitelist-Exceptions': JSON.stringify(whitelistExceptions)
+                    };
+                    
+                    const response = await axios.get('/api/files', { headers });
+                    
+                    // 检查会话是否过期
+                    if (response.data.message && response.data.message.includes('会话已过期')) {
+                        console.warn('会话已过期，创建新会话...');
+                        localStorage.removeItem('sessionId');
+                        this.sessionId = '';
+                        await this.createOrUseSession();
+                        // 重新获取文件
+                        return this.getFiles();
+                    }
+                    
+                    this.files = response.data.data || [];
+                    this.buildFileTree();
+                    
+                    if (this.files.length === 0 && this.sessionId) {
+                        await this.checkSessionStatus();
+                        if (!this.repositoryInitialized) {
+                        }
+                    }
+                }
                 catch (error) { this.errorHandler(error); }
                 finally { this.loading = false; }
             },
@@ -267,7 +442,57 @@ if (typeof Vue !== 'undefined') {
             showModal(options) { this.modalTitle = options.title || '确认'; this.modalMessage = options.message || ''; this.modalType = options.type || 'info'; this.modalIcon = options.icon || 'info'; this.modalDetails = options.details || []; this.modalConfirmClass = options.confirmClass || 'btn-primary'; this.modalCallback = options.callback || null; this.modalVisible = true; this.$nextTick(() => lucide.createIcons()); },
             confirmModal() { this.modalVisible = false; if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; } },
             cancelModal() { this.modalVisible = false; this.modalCallback = null; },
-            saveRepoConfig() { localStorage.setItem('gitRepo', this.gitRepo); axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() }).then(response => { this.closePanel(); this.showToast('配置已保存，请点击初始化按钮', 'success'); }).catch(error => { this.errorHandler(error); }); },
+            saveRepoConfig() { 
+                // 不保存到 localStorage，只发送到后端
+                axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() })
+                    .then(response => { 
+                        this.closePanel(); 
+                        this.showToast('配置已保存，请点击初始化按钮', 'success'); 
+                    })
+                    .catch(error => { 
+                        this.errorHandler(error); 
+                    }); 
+            },
+            saveExcludePatterns() {
+                localStorage.setItem('excludePatterns', this.excludePatterns);
+                localStorage.setItem('simplePatterns', this.simplePatterns);
+                localStorage.setItem('useWhitelist', this.useWhitelist);
+                localStorage.setItem('whitelistExceptions', this.whitelistExceptions);
+                this.showToast('设置已保存，刷新页面后生效', 'success');
+                this.closePanel();
+            },
+            getExcludePatterns() {
+                if (!this.excludePatterns) return [];
+                return this.excludePatterns.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+            },
+            getSimplePatterns() {
+                if (!this.simplePatterns) return [];
+                return this.simplePatterns.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+            },
+            getWhitelistExceptions() {
+                if (!this.whitelistExceptions) return [];
+                return this.whitelistExceptions.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+            },
+            addPattern(pattern) {
+                // 如果当前为空，直接设置
+                if (!this.excludePatterns || this.excludePatterns.trim() === '') {
+                    this.excludePatterns = pattern;
+                } else {
+                    // 否则追加到末尾
+                    this.excludePatterns = this.excludePatterns.trimEnd() + '\n' + pattern;
+                }
+                this.showToast('已添加正则规则：' + pattern, 'info');
+            },
+            addSimplePattern(pattern) {
+                // 如果当前为空，直接设置
+                if (!this.simplePatterns || this.simplePatterns.trim() === '') {
+                    this.simplePatterns = pattern;
+                } else {
+                    // 否则追加到末尾
+                    this.simplePatterns = this.simplePatterns.trimEnd() + '\n' + pattern;
+                }
+                this.showToast('已添加简单规则：' + pattern, 'info');
+            },
             showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => lucide.createIcons()); },
             hideContextMenu() { this.contextMenuVisible = false; this.contextMenuFile = null; },
             openFile() { if (this.contextMenuFile && this.contextMenuFile.type === 'file') this.selectFile(this.contextMenuFile); this.hideContextMenu(); },
@@ -277,11 +502,14 @@ if (typeof Vue !== 'undefined') {
             moveContext() { if (this.contextMenuFile) this.showMovePanel(this.contextMenuFile); },
             deleteContext() { if (this.contextMenuFile) this.deleteFile(this.contextMenuFile); }
         },
-        mounted() {
+        async mounted() {
             if (this.currentTheme && this.currentTheme !== 'light') { document.documentElement.setAttribute('data-theme', this.currentTheme); }
             this._clickHandler = () => { this.hideContextMenu(); };
             document.addEventListener('click', this._clickHandler);
-            this.$nextTick(() => { lucide.createIcons(); this.initApp(); });
+            await this.$nextTick();
+            lucide.createIcons();
+            await this.createOrUseSession();
+            await this.initApp();
         },
         beforeUnmount() {
             if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
