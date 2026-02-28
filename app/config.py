@@ -58,11 +58,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# CORS 配置
-ALLOWED_ORIGINS = [
-    'http://localhost:13131',
-    'http://127.0.0.1:13131',
-]
+# CORS 配置 - 根据环境动态配置
+is_production = os.getenv('PRODUCTION', 'false').lower() == 'true'
+
+if is_production:
+    # 生产环境：严格限制来源
+    CORS_ORIGINS_STR = os.getenv('CORS_ORIGINS', 'https://your-domain.com')
+    logger.info(f"生产环境 CORS 配置：{CORS_ORIGINS_STR}")
+else:
+    # 开发环境：允许 localhost
+    CORS_ORIGINS_STR = os.getenv('CORS_ORIGINS', 'http://localhost:13131,http://127.0.0.1:13131')
+    logger.info(f"开发环境 CORS 配置：{CORS_ORIGINS_STR}")
+
+# 解析 CORS 来源
+ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(',') if origin.strip()]
 
 # 用户会话配置
 SESSION_TIMEOUT_HOURS = int(os.getenv('SESSION_TIMEOUT_HOURS', '1'))  # 1 小时无操作超时

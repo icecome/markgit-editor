@@ -188,7 +188,8 @@ async def get_auth_status(x_session_id: Optional[str] = Header(None)):
             "login": user_info.get("login", ""),
             "avatar_url": user_info.get("avatar_url", ""),
             "name": user_info.get("name", ""),
-            "email": user_info.get("email", "")
+            # 移除 email 字段，保护用户隐私
+            # 如需邮箱，前端可通过 GitHub API 单独获取
         },
         "scopes": token_info.get("scope", "").split(","),
         "expires_at": token_info.get("expires_at")

@@ -16,9 +16,9 @@ from app.file_service import (
 )
 from app.git_service import (
     git_add, git_status, git_commit, pull_updates_async,
-    init_local_git_async, sync_branch_name, deploy, sanitize_for_log,
-    set_current_session_path
+    init_local_git_async, sync_branch_name, deploy, sanitize_for_log
 )
+from app.context_manager import setup_git_context, get_current_cache_path, get_session_path
 from app.session_manager import session_manager
 from app.models import (
     FileCreateRequest, FileSaveRequest, FileRenameRequest,
@@ -26,19 +26,6 @@ from app.models import (
 )
 
 router = APIRouter()
-
-def get_session_path(session_id: Optional[str] = None) -> str:
-    """获取会话路径，如果未提供 session_id 则返回全局缓存路径"""
-    if session_id:
-        path = session_manager.get_session_path(session_id)
-        if path:
-            return path
-    return BLOG_CACHE_PATH
-
-def setup_git_context(session_id: Optional[str] = None):
-    """设置 Git 操作上下文（会话路径）"""
-    base_path = get_session_path(session_id)
-    set_current_session_path(base_path)
 
 @router.get("/health", response_model=ApiResponse)
 def health_check():

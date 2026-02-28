@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import app.config as config
 from app.auth.token_store import token_store
+from app.context_manager import get_current_cache_path
 
 logger = logging.getLogger(__name__)
 
@@ -19,19 +20,8 @@ def set_current_session_path(path: str):
     """设置当前会话的路径"""
     _current_session_path.value = path
 
-def get_current_cache_path() -> str:
-    """获取当前缓存路径，优先返回会话路径"""
-    if hasattr(_current_session_path, 'value') and _current_session_path.value:
-        return _current_session_path.value
-    return config.BLOG_CACHE_PATH
-
-def setup_git_context(session_id: str):
-    """设置 Git 操作上下文（会话路径）"""
-    if session_id:
-        from app.session_manager import session_manager
-        session_data = session_manager.get_session(session_id)
-        if session_data and 'path' in session_data:
-            set_current_session_path(session_data['path'])
+# 注意：get_current_cache_path 和 setup_git_context 已移至 app.context_manager
+# 此处保留 set_current_session_path 供 context_manager 使用
 
 def get_oauth_token(session_id: str) -> Optional[str]:
     """获取 OAuth 访问令牌"""
@@ -164,11 +154,18 @@ def validate_deploy_command(cmd: str) -> list:
         raise ValueError(f"部署脚本不存在: {script_path}")
     if not os.access(script_path, os.X_OK):
         raise ValueError(f"部署脚本不可执行: {script_path}")
-    if config.ALLOWED_DEPLOY_SCRIPTS_DIR:
-        allowed_dir = os.path.abspath(config.ALLOWED_DEPLOY_SCRIPTS_DIR)
-        script_abs = os.path.abspath(script_path)
-        if not script_abs.startswith(allowed_dir):
-            raise ValueError(f"部署脚本必须在允许目录 {config.ALLOWED_DEPLOY_SCRIPTS_DIR} 内")
+    # 强制要求配置允许目录（生产环境必须配置）
+    allowed_dir = os.getenv('ALLOWED_DEPLOY_SCRIPTS_DIR', '')
+    if not allowed_dir:
+        logger.error("部署命令执行失败：未配置 ALLOWED_DEPLOY_SCRIPTS_DIR 环境变量")
+        raise ValueError("必须配置 ALLOWED_DEPLOY_SCRIPTS_DIR 环境变量以指定允许的部署脚本目录")
+    
+    # 验证脚本在允许目录内
+    abs_script = os.path.abspath(script_path)
+    abs_allowed = os.path.abspath(allowed_dir)
+    if not abs_script.startswith(abs_allowed + os.sep) and abs_script != abs_allowed:
+        logger.error(f"部署脚本不在允许目录内：{abs_script} (允许目录：{abs_allowed})")
+        raise ValueError(f"部署脚本必须在允许目录内：{allowed_dir}")
     for part in parts:
         if any(c in part for c in ['|', ';', '&', '$', '`', '>', '<', '\n', '\r']):
             raise ValueError(f"部署命令包含非法字符: {part}")
@@ -238,7 +235,9 @@ def git_commit(session_id: Optional[str] = None):
         deploy()
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
-        logger.error("Git 操作失败：" + error_msg)
+        logger.error("Git 操作失败：" + error_msg)  # 详细错误记录到日志
+        
+        # 返回用户友好的错误信息，不包含敏感路径
         if 'fatal: not a git repository' in error_msg:
             raise HTTPException(status_code=500, detail="不是 Git 仓库，请先初始化")
         elif 'fatal: Authentication failed' in error_msg:
@@ -249,7 +248,12 @@ def git_commit(session_id: Optional[str] = None):
             raise HTTPException(status_code=500, detail="仓库未找到，请检查仓库地址")
         elif 'fatal: could not read Username' in error_msg:
             raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
-        raise HTTPException(status_code=500, detail="提交操作失败：" + error_msg)
+        elif 'Permission denied' in error_msg or 'password' in error_msg.lower():
+            logger.error("Git 认证失败")  # 只记录到日志
+            raise HTTPException(status_code=403, detail="Git 认证失败")
+        else:
+            logger.error("Git 推送失败，详细错误已记录到日志")
+            raise HTTPException(status_code=500, detail="Git 操作失败，请查看服务器日志")
     except Exception as e:
         logger.error("提交失败：" + str(e))
         raise HTTPException(status_code=500, detail="提交失败：" + str(e))

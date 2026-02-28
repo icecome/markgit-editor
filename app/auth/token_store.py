@@ -41,7 +41,7 @@ class MemoryTokenStore:
             'created_at': datetime.now(),
             'expires_at': datetime.now() + timedelta(seconds=ttl)
         }
-        logger.info(f"存储令牌：{session_id[:8]}...")
+        logger.info(f"存储令牌：{session_id[:4]}***")
     
     def get(self, session_id: str) -> Optional[dict]:
         """获取令牌"""
@@ -133,19 +133,44 @@ class RedisTokenStore:
 
 # 全局令牌存储实例
 def create_token_store() -> MemoryTokenStore | RedisTokenStore:
-    """创建令牌存储实例"""
+    """
+    创建令牌存储实例
+    
+    Returns:
+        MemoryTokenStore 或 RedisTokenStore 实例
+        
+    Raises:
+        RuntimeError: 生产环境配置使用 Redis 但模块未安装时抛出
+    """
     from app.config import MAX_CONCURRENT_SESSIONS
     
     use_redis = os.getenv("USE_REDIS", "false").lower() == "true"
+    is_production = os.getenv("PRODUCTION", "false").lower() == "true"
     
-    if use_redis and REDIS_AVAILABLE:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        try:
-            return RedisTokenStore(redis_url)
-        except Exception as e:
-            logger.warning(f"Redis 不可用，使用内存存储：{e}")
+    # 生产环境检查
+    if is_production and not use_redis:
+        logger.warning("⚠️ 生产环境建议使用 Redis 存储会话，否则服务器重启后会丢失所有用户会话")
+        logger.warning("配置方法：在 .env 文件中设置 USE_REDIS=true 和 REDIS_URL=redis://localhost:6379/0")
     
-    # 默认使用内存存储
+    # 尝试使用 Redis
+    if use_redis:
+        if not REDIS_AVAILABLE:
+            logger.error("Redis 模块未安装，请运行：pip install redis")
+            if is_production:
+                raise RuntimeError("生产环境配置使用 Redis 但模块未安装")
+        else:
+            try:
+                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                store = RedisTokenStore(redis_url)
+                logger.info("Redis 令牌存储已初始化")
+                return store
+            except Exception as e:
+                logger.error(f"Redis 连接失败：{e}")
+                if is_production:
+                    raise
+    
+    # 使用内存存储
+    logger.info("内存令牌存储已初始化")
     return MemoryTokenStore(MAX_CONCURRENT_SESSIONS)
 
 
