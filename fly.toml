@@ -1,0 +1,30 @@
+app = "markgit-editor"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PRODUCTION = "true"
+  PORT = "13131"
+
+[mounts]
+  source = "markgit_data"
+  destination = "/app/blog_cache"
+
+[[services]]
+  internal_port = 13131
+  protocol = "tcp"
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"

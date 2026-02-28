@@ -10,6 +10,7 @@ from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger
 from app.routes import router
 from app.cleanup_service import cleanup_service
 from app.auth.routes import router as auth_router
+from app.version import __version__
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -31,7 +32,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         return await call_next(request)
 
-app = FastAPI(title="MarkGit Editor API", version="1.2.0")
+app = FastAPI(
+    title="MarkGit Editor API", 
+    version=__version__,
+    description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
+)
 
 app.add_middleware(
     CORSMiddleware,
