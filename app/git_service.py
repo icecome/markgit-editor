@@ -644,7 +644,6 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                         break
                 except Exception as e:
                     logger.warning(f"清理临时目录失败 (尝试 {retry+1}/3): {e}")
-                    import time
                     time.sleep(0.5)
             
             # 如果仍然存在，尝试强制删除
