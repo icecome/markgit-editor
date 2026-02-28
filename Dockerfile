@@ -39,11 +39,10 @@ EXPOSE 13131
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PRODUCTION=true
-ENV PORT=13131
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:13131/ || exit 1
+    CMD curl -f http://localhost:${PORT:-13131}/ || exit 1
 
-# 启动命令
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "13131"]
+# 启动命令 - 使用 shell 形式以正确展开环境变量
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-13131}
