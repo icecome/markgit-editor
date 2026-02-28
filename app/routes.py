@@ -47,9 +47,13 @@ def get_files(x_session_id: Optional[str] = Header(None),
         x_whitelist_exceptions: 可选的白名单例外规则，JSON 数组格式
     """
     try:
-        # 如果提供了会话 ID 但无效，返回空列表（前端应创建新会话）
-        if x_session_id and not session_manager.is_session_valid(x_session_id):
-            logger.warning(f"无效的会话 ID: {x_session_id[:8] if x_session_id else 'None'}...")
+        # 如果没有会话 ID，返回空列表（前端应创建新会话）
+        if not x_session_id:
+            return ApiResponse(data=[], message="请先创建会话")
+        
+        # 如果会话无效，返回空列表（前端应创建新会话）
+        if not session_manager.is_session_valid(x_session_id):
+            logger.warning(f"无效的会话 ID: {x_session_id[:8]}...")
             return ApiResponse(data=[], message="会话已过期，请刷新页面")
         
         base_path = get_session_path(x_session_id)
@@ -112,6 +116,8 @@ def get_files(x_session_id: Optional[str] = Header(None),
 @router.get("/file/content")
 def get_file_content(file_path: str = "", x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         base_path = get_session_path(x_session_id)
         full_path = validate_file_path(file_path, base_path=base_path)
         if not os.path.exists(full_path):
@@ -130,6 +136,8 @@ def get_file_content(file_path: str = "", x_session_id: Optional[str] = Header(N
 @router.post("/file/create", response_model=ApiResponse)
 async def create_file(request: FileCreateRequest, x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(request.path, base_path=base_path)
@@ -148,6 +156,8 @@ async def create_file(request: FileCreateRequest, x_session_id: Optional[str] = 
 @router.post("/file/save", response_model=ApiResponse)
 async def save_file(request: FileSaveRequest, x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(request.path, base_path=base_path)
@@ -167,6 +177,8 @@ async def save_file(request: FileSaveRequest, x_session_id: Optional[str] = Head
 @router.post("/file/rename", response_model=ApiResponse)
 async def rename_file(request: FileRenameRequest, x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         if not request.oldPath or not request.newPath:
             raise HTTPException(status_code=400, detail="Both old and new paths are required")
         base_path = get_session_path(x_session_id)
@@ -190,6 +202,8 @@ async def rename_file(request: FileRenameRequest, x_session_id: Optional[str] = 
 @router.delete("/file/delete", response_model=ApiResponse)
 async def delete_file(file_path: str = "", x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(file_path, base_path=base_path)
@@ -211,6 +225,8 @@ async def delete_file(file_path: str = "", x_session_id: Optional[str] = Header(
 @router.post("/file/move", response_model=ApiResponse)
 async def move_file(request: FileMoveRequest, x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         if not request.sourcePath or not request.destPath:
             raise HTTPException(status_code=400, detail="Both source and destination paths are required")
         base_path = get_session_path(x_session_id)
@@ -235,6 +251,8 @@ async def move_file(request: FileMoveRequest, x_session_id: Optional[str] = Head
 @router.post("/folder/create", response_model=ApiResponse)
 async def create_folder(request: FolderCreateRequest, x_session_id: Optional[str] = Header(None)):
     try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(request.path, base_path=base_path)
@@ -263,20 +281,16 @@ def get_git_repo(x_session_id: Optional[str] = Header(None)):
 
 @router.post("/git-repo", response_model=ApiResponse)
 async def set_git_repo(request: GitRepoRequest, x_session_id: Optional[str] = Header(None)):
-    """设置 Git 仓库配置，支持会话级别配置"""
+    """设置 Git 仓库配置，必须提供会话 ID"""
     try:
         if not request.gitRepo:
             raise HTTPException(status_code=400, detail="Git repo URL is required")
         
-        if x_session_id:
-            session_manager.update_session_git_repo(x_session_id, request.gitRepo)
-            logger.info(f"会话 {x_session_id[:8]}... Git 仓库配置已设置：" + sanitize_for_log(request.gitRepo))
-        else:
-            global BLOG_GIT_SSH
-            import app.config as config
-            config.BLOG_GIT_SSH = request.gitRepo
-            BLOG_GIT_SSH = request.gitRepo
-            logger.info("全局 Git 仓库配置已设置：" + sanitize_for_log(request.gitRepo))
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="必须提供会话 ID")
+        
+        session_manager.update_session_git_repo(x_session_id, request.gitRepo)
+        logger.info(f"会话 {x_session_id[:8]}... Git 仓库配置已设置：" + sanitize_for_log(request.gitRepo))
         
         return ApiResponse(message="Git 仓库配置已设置")
     except HTTPException:
@@ -491,7 +505,7 @@ def get_user_id():
 @router.post("/init", response_model=ApiResponse)
 async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Header(None),
                          x_oauth_session_id: Optional[str] = Header(None)):
-    """初始化工作区，支持多用户隔离
+    """初始化工作区，必须提供会话 ID
     
     初始化策略:
     1. 如果已有 Git 仓库且有远程配置，返回 connected 状态
@@ -501,21 +515,24 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
     """
     async with git_operation_lock:
         try:
+            if not x_session_id:
+                raise HTTPException(status_code=400, detail="必须提供会话 ID")
+            
             base_path = get_session_path(x_session_id)
             
+            # 更新会话级别的 Git 仓库配置
             if request.gitRepo:
-                import app.config as config
-                config.BLOG_GIT_SSH = request.gitRepo
-                global BLOG_GIT_SSH
-                BLOG_GIT_SSH = request.gitRepo
-                
-                if x_session_id:
-                    session_manager.update_session_git_repo(x_session_id, request.gitRepo)
+                session_manager.update_session_git_repo(x_session_id, request.gitRepo)
+                logger.info(f"会话 {x_session_id[:8]}... Git 仓库配置已设置：{sanitize_for_log(request.gitRepo)}")
             
-            # 传递会话路径和 OAuth session_id 给初始化函数
-            result = await init_local_git_async(session_path=base_path, session_id=x_oauth_session_id)
+            # 传递会话路径、会话 ID（用于获取 Git 仓库配置）和 OAuth session_id（用于获取访问令牌）
+            result = await init_local_git_async(
+                session_path=base_path, 
+                session_id=x_session_id,
+                oauth_session_id=x_oauth_session_id
+            )
             
-            if x_session_id and result.get('status') in ['connected', 'remote_configured', 'cloned']:
+            if result.get('status') in ['connected', 'remote_configured', 'cloned']:
                 session_manager.mark_session_initialized(x_session_id)
             
             logger.info("工作区初始化成功")
@@ -549,9 +566,12 @@ async def pull_repo(x_session_id: Optional[str] = Header(None),
             raise HTTPException(status_code=500, detail="拉取失败：" + str(e))
 
 @router.post("/reset", response_model=ApiResponse)
-async def reset(x_session_id: Optional[str] = Header(None)):
+async def reset(x_session_id: Optional[str] = Header(None),
+                x_oauth_session_id: Optional[str] = Header(None)):
     async with git_operation_lock:
         try:
+            if not x_session_id:
+                raise HTTPException(status_code=400, detail="请先创建会话")
             base_path = get_session_path(x_session_id)
             if os.path.exists(base_path):
                 backup_path = base_path + "_backup"
@@ -561,7 +581,11 @@ async def reset(x_session_id: Optional[str] = Header(None)):
                 except Exception as backup_error:
                     logger.warning("备份失败，继续重置：" + str(backup_error))
             setup_git_context(x_session_id)
-            await init_local_git_async(session_path=base_path, session_id=x_oauth_session_id)
+            await init_local_git_async(
+                session_path=base_path, 
+                session_id=x_session_id,
+                oauth_session_id=x_oauth_session_id
+            )
             logger.info("工作区重置完成")
             return ApiResponse(message="工作区重置完成")
         except HTTPException:
@@ -571,11 +595,12 @@ async def reset(x_session_id: Optional[str] = Header(None)):
             raise HTTPException(status_code=500, detail="重置工作区失败")
 
 @router.post("/soft_reset", response_model=ApiResponse)
-async def soft_reset(x_session_id: Optional[str] = Header(None)):
+async def soft_reset(x_session_id: Optional[str] = Header(None),
+                     x_oauth_session_id: Optional[str] = Header(None)):
     async with git_operation_lock:
         try:
             setup_git_context(x_session_id)
-            await pull_updates_async()
+            await pull_updates_async(session_id=x_oauth_session_id)
             logger.info("工作区软重置完成")
             return ApiResponse(message="工作区软重置完成")
         except HTTPException:

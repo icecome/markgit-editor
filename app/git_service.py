@@ -108,29 +108,48 @@ def get_remote_default_branch() -> str:
         return remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
     return config.BLOG_BRANCH
 
-def configure_git_user(session_id: Optional[str] = None):
+def configure_git_user(session_id: Optional[str] = None, cache_path: Optional[str] = None):
     """
     配置 Git 用户信息
     
     Args:
-        session_id: 会话 ID，用于获取 OAuth 令牌和用户信息
-        
-    Raises:
-        ValueError: 未提供 session_id 或无法获取 GitHub 用户信息时抛出
+        session_id: OAuth 会话 ID，用于获取 GitHub 用户信息（可选）
+        cache_path: 可选的缓存路径，如果不提供则从线程局部存储获取
+    
+    Note:
+        如果没有提供 session_id 或无法获取 GitHub 用户信息，
+        将使用默认配置 "MarkGit User <markgit@example.com>"
     """
-    cache_path = get_current_cache_path()
+    # 获取缓存路径
+    if not cache_path:
+        cache_path = get_current_cache_path()
     
-    # 必须提供 session_id
+    # 默认 Git 用户配置
+    default_name = "MarkGit User"
+    default_email = "markgit@example.com"
+    
+    # 如果没有 session_id，使用默认配置
     if not session_id:
-        logger.error("未提供会话 ID，无法配置 Git 用户")
-        raise ValueError("必须提供会话 ID 以配置 Git 用户信息")
+        logger.info(f"未提供 OAuth 会话 ID，使用默认 Git 用户配置：{default_name}")
+        subprocess.run(['git', 'config', 'user.name', default_name], 
+                     cwd=cache_path, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', default_email], 
+                     cwd=cache_path, check=True, capture_output=True)
+        logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
+        return
     
+    # 尝试从 OAuth 获取用户信息
     from app.auth.token_store import token_store
     
     token_info = token_store.get(session_id)
     if not token_info or not token_info.get('access_token'):
-        logger.error(f"会话 {session_id} 无效或已过期")
-        raise ValueError("无效的会话 ID 或未找到访问令牌")
+        logger.warning(f"OAuth 会话 {session_id[:8]}... 无效或已过期，使用默认 Git 用户配置")
+        subprocess.run(['git', 'config', 'user.name', default_name], 
+                     cwd=cache_path, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', default_email], 
+                     cwd=cache_path, check=True, capture_output=True)
+        logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
+        return
     
     try:
         # 使用同步 HTTP 客户端获取 GitHub 用户信息
@@ -153,8 +172,8 @@ def configure_git_user(session_id: Optional[str] = None):
                 git_email = user_info.get('email') or f"{user_info.get('login')}@users.noreply.github.com"
                 
                 if not git_name:
-                    logger.error("GitHub 用户信息中未找到用户名")
-                    raise ValueError("无法从 GitHub 获取用户名")
+                    git_name = default_name
+                    git_email = default_email
                 
                 subprocess.run(['git', 'config', 'user.name', git_name], 
                              cwd=cache_path, check=True, capture_output=True)
@@ -162,14 +181,26 @@ def configure_git_user(session_id: Optional[str] = None):
                              cwd=cache_path, check=True, capture_output=True)
                 logger.info(f"Git 用户已配置：{git_name} <{git_email}>")
             else:
-                logger.error(f"获取 GitHub 用户信息失败：{response.status_code} - {response.text}")
-                raise ValueError(f"获取 GitHub 用户信息失败：{response.status_code}")
+                logger.warning(f"获取 GitHub 用户信息失败：{response.status_code}，使用默认配置")
+                subprocess.run(['git', 'config', 'user.name', default_name], 
+                             cwd=cache_path, check=True, capture_output=True)
+                subprocess.run(['git', 'config', 'user.email', default_email], 
+                             cwd=cache_path, check=True, capture_output=True)
+                logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
     except httpx.RequestError as e:
-        logger.error(f"请求 GitHub API 失败：{e}")
-        raise ValueError(f"无法连接 GitHub：{str(e)}")
+        logger.warning(f"请求 GitHub API 失败：{e}，使用默认配置")
+        subprocess.run(['git', 'config', 'user.name', default_name], 
+                     cwd=cache_path, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', default_email], 
+                     cwd=cache_path, check=True, capture_output=True)
+        logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
     except Exception as e:
-        logger.error(f"配置 Git 用户失败：{e}")
-        raise
+        logger.warning(f"配置 Git 用户失败：{e}，使用默认配置")
+        subprocess.run(['git', 'config', 'user.name', default_name], 
+                     cwd=cache_path, check=True, capture_output=True)
+        subprocess.run(['git', 'config', 'user.email', default_email], 
+                     cwd=cache_path, check=True, capture_output=True)
+        logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
 
 def git_status() -> list:
     try:
@@ -249,6 +280,7 @@ def deploy():
 def git_commit(session_id: Optional[str] = None):
     from fastapi import HTTPException
     from app.file_service import pretty_git_status
+    from app.session_manager import session_manager
     try:
         status = git_status()
         if not status:
@@ -267,7 +299,12 @@ def git_commit(session_id: Optional[str] = None):
         commit_result = subprocess.run(commit_cmd, cwd=cache_path, check=True, env=env, capture_output=True, text=True)
         logger.info("提交成功：" + commit_result.stdout)
         
-        git_repo = config.BLOG_GIT_SSH
+        # 优先使用会话级别的 Git 仓库配置
+        git_repo = ''
+        if session_id:
+            git_repo = session_manager.get_session_git_repo(session_id)
+        if not git_repo:
+            git_repo = config.BLOG_GIT_SSH
         if not git_repo:
             raise HTTPException(status_code=500, detail="未配置远程仓库地址")
         
@@ -318,12 +355,21 @@ def git_commit(session_id: Optional[str] = None):
 
 async def pull_updates_async(session_id: Optional[str] = None):
     from fastapi import HTTPException
+    from app.session_manager import session_manager
+    
     cache_path = get_current_cache_path()
     
     if not os.path.exists(os.path.join(cache_path, '.git')):
         raise HTTPException(status_code=400, detail="不是 Git 仓库，请先初始化")
     
-    ensure_git_remote_config()
+    # 优先使用会话级别的 Git 仓库配置
+    git_repo = ''
+    if session_id:
+        git_repo = session_manager.get_session_git_repo(session_id)
+    if not git_repo:
+        git_repo = config.BLOG_GIT_SSH
+    
+    ensure_git_remote_config(git_repo)
     env = get_git_env(session_id)
     
     current_branch = get_current_branch()
@@ -399,18 +445,31 @@ async def pull_updates_async(session_id: Optional[str] = None):
     
     logger.info("已拉取远程最新更改")
 
-async def init_local_git_async(session_path: str = None, session_id: Optional[str] = None):
+async def init_local_git_async(session_path: str = None, session_id: Optional[str] = None, oauth_session_id: Optional[str] = None):
     """初始化本地 Git 仓库
     
     Args:
-        session_path: 会话路径，如果不提供则使用全局 BLOG_CACHE_PATH
-        session_id: OAuth 会话 ID，用于获取访问令牌
+        session_path: 会话路径（必须提供）
+        session_id: 会话 ID，用于获取 Git 仓库配置
+        oauth_session_id: OAuth 会话 ID，用于获取访问令牌和用户信息
+    
+    Raises:
+        ValueError: 当未提供 session_path 时抛出
     """
     from fastapi import HTTPException
+    from app.session_manager import session_manager
     
-    # 使用会话路径或全局路径
-    cache_path = session_path if session_path else config.BLOG_CACHE_PATH
-    git_repo = config.BLOG_GIT_SSH
+    # 必须提供会话路径，不允许使用全局配置
+    if not session_path:
+        raise ValueError("必须提供会话路径，不允许使用全局配置")
+    cache_path = session_path
+    
+    # 优先使用会话级别的 Git 仓库配置
+    git_repo = ''
+    if session_id:
+        git_repo = session_manager.get_session_git_repo(session_id)
+    if not git_repo:
+        git_repo = config.BLOG_GIT_SSH
     
     has_git = os.path.exists(os.path.join(cache_path, '.git'))
     has_files = os.path.exists(cache_path) and any(
@@ -418,7 +477,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         for f in os.listdir(cache_path) if f != '.git'
     ) if os.path.exists(cache_path) else False
     
-    env = get_git_env(session_id)
+    env = get_git_env(oauth_session_id)
     
     if has_git:
         logger.info("Git 仓库已存在，检查远程配置")
@@ -427,15 +486,58 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
             has_remote = 'origin' in remote_result.stdout
             
             if has_remote:
+                # 检查是否有文件（除了 .git 目录）
+                has_content = any(
+                    os.path.exists(os.path.join(cache_path, f)) 
+                    for f in os.listdir(cache_path) if f != '.git'
+                ) if os.path.exists(cache_path) else False
+                
+                if not has_content:
+                    # 仓库存在但没有文件，尝试拉取远程内容
+                    logger.info("仓库存在但没有文件，尝试拉取远程内容")
+                    try:
+                        # 先 fetch 远程内容
+                        fetch_result = subprocess.run(['git', 'fetch', 'origin'], cwd=cache_path, env=env, capture_output=True, text=True, timeout=60)
+                        logger.info(f"Fetch 结果: {fetch_result.stdout[:200] if fetch_result.stdout else '无输出'}")
+                        
+                        # 获取默认分支
+                        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=cache_path, capture_output=True, text=True)
+                        if remote_head_result.returncode == 0:
+                            default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
+                            logger.info(f"远程默认分支: {default_branch}")
+                            
+                            # 检出分支
+                            checkout_result = subprocess.run(['git', 'checkout', default_branch], cwd=cache_path, capture_output=True, text=True)
+                            logger.info(f"Checkout 结果: {checkout_result.stdout[:200] if checkout_result.stdout else checkout_result.stderr[:200]}")
+                            
+                            # 重置到远程分支
+                            reset_result = subprocess.run(['git', 'reset', '--hard', f'origin/{default_branch}'], cwd=cache_path, capture_output=True, text=True)
+                            logger.info(f"Reset 结果: {reset_result.stdout[:200] if reset_result.stdout else reset_result.stderr[:200]}")
+                            
+                            # 检查是否有文件
+                            files_after = [f for f in os.listdir(cache_path) if f != '.git']
+                            logger.info(f"拉取后目录文件数: {len(files_after)}")
+                        else:
+                            # 如果无法获取默认分支，尝试直接 checkout
+                            logger.warning("无法获取远程默认分支，尝试直接检出")
+                            subprocess.run(['git', 'checkout', 'main'], cwd=cache_path, capture_output=True, text=True)
+                            subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=cache_path, capture_output=True, text=True)
+                    except Exception as e:
+                        logger.warning(f"拉取远程内容失败：{e}")
+                
+                try:
+                    configure_git_user(oauth_session_id, cache_path=cache_path)
+                except Exception as e:
+                    logger.error(f"配置 Git 用户失败：{e}")
+                
                 return {"message": "初始化成功，仓库已连接", "status": "connected"}
             else:
                 if git_repo:
                     subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
                     try:
-                        configure_git_user(session_id)
+                        configure_git_user(oauth_session_id, cache_path=cache_path)
                     except Exception as e:
                         logger.error(f"配置 Git 用户失败：{e}")
-                        # 继续执行，不影响初始化
                     logger.info("已设置远程仓库配置")
                     return {"message": "初始化成功，远程仓库已配置", "status": "remote_configured"}
                 else:
@@ -498,7 +600,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         if clone_success or (clone_error and 'empty repository' in clone_error.lower()):
             if os.path.exists(os.path.join(temp_dir, '.git')):
                 shutil.copytree(os.path.join(temp_dir, '.git'), os.path.join(cache_path, '.git'))
-            configure_git_user(session_id)
+            configure_git_user(oauth_session_id, cache_path=cache_path)
             
             if clone_success and os.path.exists(temp_dir):
                 for item in os.listdir(temp_dir):
@@ -529,7 +631,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     elif has_files and not git_repo:
         logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
         subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
-        configure_git_user(session_id)
+        configure_git_user(oauth_session_id, cache_path=cache_path)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
     
     elif not has_files and git_repo:
@@ -570,15 +672,14 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         if clone_success:
             logger.info("远程仓库克隆成功")
             try:
-                configure_git_user(session_id)
+                configure_git_user(oauth_session_id, cache_path=cache_path)
             except Exception as e:
                 logger.error(f"配置 Git 用户失败：{e}")
-                # 继续执行，不影响初始化
             return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
         elif clone_error and 'empty repository' in clone_error.lower():
             subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
             subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
-            configure_git_user(session_id)
+            configure_git_user(oauth_session_id, cache_path=cache_path)
             logger.info("空仓库初始化成功")
             return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
         else:
@@ -593,17 +694,23 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         logger.info("本地无文件，无远程仓库配置，初始化空仓库")
         os.makedirs(cache_path, exist_ok=True)
         subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
-        configure_git_user(session_id)
+        configure_git_user(oauth_session_id, cache_path=cache_path)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
 
 def sync_branch_name(cache_path: str = None):
     """同步本地分支名称与远程仓库的默认分支
     
     Args:
-        cache_path: 缓存路径，如果不提供则使用全局 BLOG_CACHE_PATH
+        cache_path: 缓存路径（必须提供）
+    
+    Raises:
+        ValueError: 当未提供 cache_path 时抛出
     """
     try:
-        path = cache_path if cache_path else config.BLOG_CACHE_PATH
+        # 必须提供缓存路径
+        if not cache_path:
+            raise ValueError("必须提供缓存路径，不允许使用全局配置")
+        path = cache_path
         
         if not os.path.exists(os.path.join(path, '.git')):
             return
