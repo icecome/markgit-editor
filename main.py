@@ -14,11 +14,19 @@ from app.version import __version__
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # OAuth 相关路径跳过 CSRF 检查
+        if request.url.path.startswith('/api/auth/'):
+            return await call_next(request)
+        
         if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
             origin = request.headers.get("origin", "")
             referer = request.headers.get("referer", "")
             
             allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
+            
+            # 如果没有 origin 和 referer，允许请求通过（可能是直接 API 调用）
+            if not origin and not referer:
+                return await call_next(request)
             
             if origin:
                 if origin not in allowed_origins:
