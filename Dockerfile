@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
-WORKDIR /app
+# 设置工作目录 - 使用 /markgit-editor 避免与 app 模块冲突
+WORKDIR /markgit-editor
 
 # 复制依赖文件
 COPY requirements.txt .
@@ -24,11 +24,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建缓存目录
-RUN mkdir -p /app/blog_cache
+RUN mkdir -p /markgit-editor/blog_cache
 
 # 创建非 root 用户
 RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /markgit-editor
 
 # 切换到非 root 用户
 USER appuser

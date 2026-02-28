@@ -14,11 +14,11 @@ services:
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - GITHUB_SCOPE=${GITHUB_SCOPE:-repo,workflow}
       - REDIS_URL=redis://redis:6379/0
-      - BLOG_CACHE_PATH=/app/blog_cache
+      - BLOG_CACHE_PATH=/markgit-editor/blog_cache
       - SESSION_TIMEOUT_HOURS=${SESSION_TIMEOUT_HOURS:-1}
       - MAX_CONCURRENT_SESSIONS=${MAX_CONCURRENT_SESSIONS:-100}
     volumes:
-      - markgit-cache:/app/blog_cache
+      - markgit-cache:/markgit-editor/blog_cache
     depends_on:
       - redis
     restart: unless-stopped
