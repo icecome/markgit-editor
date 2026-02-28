@@ -108,6 +108,11 @@ if (typeof Vue !== 'undefined') {
                 if (this.sessionId) {
                     headers['X-Session-ID'] = this.sessionId;
                 }
+                // 添加 OAuth Session ID（用于 Git 认证）
+                const oauthSessionId = sessionStorage.getItem('oauthSessionId');
+                if (oauthSessionId) {
+                    headers['X-OAuth-Session-ID'] = oauthSessionId;
+                }
                 return headers;
             },
             async initApp() {

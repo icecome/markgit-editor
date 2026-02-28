@@ -8,20 +8,9 @@ from urllib.parse import urlparse
 
 import app.config as config
 from app.auth.token_store import token_store
-from app.context_manager import get_current_cache_path
+from app.context_manager import get_current_cache_path, setup_git_context, get_session_path
 
 logger = logging.getLogger(__name__)
-
-# 当前会话路径（线程局部存储）
-import threading
-_current_session_path = threading.local()
-
-def set_current_session_path(path: str):
-    """设置当前会话的路径"""
-    _current_session_path.value = path
-
-# 注意：get_current_cache_path 和 setup_git_context 已移至 app.context_manager
-# 此处保留 set_current_session_path 供 context_manager 使用
 
 def get_oauth_token(session_id: str) -> Optional[str]:
     """获取 OAuth 访问令牌"""
@@ -463,6 +452,14 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     if not session_path:
         raise ValueError("必须提供会话路径，不允许使用全局配置")
     cache_path = session_path
+    
+    # 记录操作路径，确保不会误操作上级目录
+    logger.info(f"init_local_git_async 操作路径: {cache_path}")
+    
+    # 安全检查：确保 cache_path 不在当前项目目录内（防止误操作开发目录）
+    current_project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.abspath(cache_path).startswith(current_project_dir):
+        logger.warning(f"警告：会话路径 {cache_path} 在项目目录 {current_project_dir} 内，可能存在安全风险")
     
     # 优先使用会话级别的 Git 仓库配置
     git_repo = ''
