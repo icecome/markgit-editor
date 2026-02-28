@@ -3,7 +3,7 @@ import subprocess
 import shutil
 import logging
 import time
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse
 
 import app.config as config
@@ -11,6 +11,65 @@ from app.auth.token_store import token_store
 from app.context_manager import get_current_cache_path, setup_git_context, get_session_path
 
 logger = logging.getLogger(__name__)
+
+def get_safe_git_env(cache_path: str, oauth_session_id: Optional[str] = None) -> Dict[str, str]:
+    """
+    获取安全的 Git 环境变量，明确指定 GIT_DIR 防止向上查找父目录的 .git
+    
+    Args:
+        cache_path: Git 仓库路径
+        oauth_session_id: OAuth 会话 ID（可选）
+    
+    Returns:
+        环境变量字典
+    """
+    env = os.environ.copy()
+    
+    # 明确指定 GIT_DIR 和 GIT_WORK_TREE，防止 Git 向上查找父目录
+    git_dir = os.path.join(cache_path, '.git')
+    env['GIT_DIR'] = git_dir
+    env['GIT_WORK_TREE'] = cache_path
+    
+    # 添加 OAuth 令牌
+    oauth_token = get_oauth_token(oauth_session_id) if oauth_session_id else None
+    if oauth_token:
+        env['MARKGIT_OAUTH_TOKEN'] = oauth_token
+        logger.info("使用 OAuth 令牌进行 Git 认证")
+    
+    # SSH 配置
+    git_repo = config.BLOG_GIT_SSH
+    if git_repo and (git_repo.startswith('git@') or git_repo.startswith('ssh://')):
+        ssh_options = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=30'
+        if config.GIT_SSH_KEY_PATH and os.path.exists(config.GIT_SSH_KEY_PATH):
+            env['GIT_SSH_COMMAND'] = f'ssh -i {config.GIT_SSH_KEY_PATH} {ssh_options}'
+        else:
+            env['GIT_SSH_COMMAND'] = f'ssh {ssh_options}'
+    
+    return env
+
+def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[str] = None, **kwargs) -> subprocess.CompletedProcess:
+    """
+    安全地执行 Git 命令，确保使用正确的环境变量和工作目录
+    
+    Args:
+        args: Git 命令参数列表
+        cache_path: Git 仓库路径
+        oauth_session_id: OAuth 会话 ID（可选）
+        **kwargs: 传递给 subprocess.run 的其他参数
+    
+    Returns:
+        subprocess.CompletedProcess 对象
+    """
+    env = get_safe_git_env(cache_path, oauth_session_id)
+    
+    # 确保 cwd 参数正确设置
+    kwargs['cwd'] = cache_path
+    
+    # 如果没有设置 env，使用安全的环境变量
+    if 'env' not in kwargs:
+        kwargs['env'] = env
+    
+    return subprocess.run(args, **kwargs)
 
 def get_oauth_token(session_id: str) -> Optional[str]:
     """获取 OAuth 访问令牌"""
@@ -65,34 +124,62 @@ def get_git_env(session_id: Optional[str] = None) -> dict:
     
     return env
 
-def ensure_git_remote_config(git_repo: str = None):
+def ensure_git_remote_config(git_repo: str = None, cache_path: str = None, oauth_session_id: Optional[str] = None):
+    """确保 Git 远程仓库配置正确
+    
+    Args:
+        git_repo: Git 仓库 URL
+        cache_path: 缓存路径（必须提供）
+        oauth_session_id: OAuth 会话 ID（可选）
+    """
     if not git_repo:
         git_repo = config.BLOG_GIT_SSH
     if not git_repo:
         return False
-    try:
+    if not cache_path:
         cache_path = get_current_cache_path()
-        remote_result = subprocess.run(['git', 'remote', '-v'], cwd=cache_path, capture_output=True, text=True)
+    try:
+        remote_result = safe_git_run(['git', 'remote', '-v'], cache_path, oauth_session_id, capture_output=True, text=True)
         has_origin = 'origin' in remote_result.stdout
         if has_origin:
-            subprocess.run(['git', 'remote', 'set-url', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
+            safe_git_run(['git', 'remote', 'set-url', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
             logger.info("已更新远程仓库配置")
         else:
-            subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
+            safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
             logger.info("已添加远程仓库配置")
         return True
     except subprocess.CalledProcessError as e:
         logger.warning("更新远程配置失败：" + (e.stderr if e.stderr else str(e)))
         return False
 
-def get_current_branch() -> str:
-    cache_path = get_current_cache_path()
-    result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=cache_path, capture_output=True, text=True)
+def get_current_branch(cache_path: str = None, oauth_session_id: Optional[str] = None) -> str:
+    """获取当前 Git 分支名称
+    
+    Args:
+        cache_path: 缓存路径（可选，不提供则从线程局部存储获取）
+        oauth_session_id: OAuth 会话 ID（可选）
+    
+    Returns:
+        当前分支名称
+    """
+    if not cache_path:
+        cache_path = get_current_cache_path()
+    result = safe_git_run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else 'main'
 
-def get_remote_default_branch() -> str:
-    cache_path = get_current_cache_path()
-    remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=cache_path, capture_output=True, text=True)
+def get_remote_default_branch(cache_path: str = None, oauth_session_id: Optional[str] = None) -> str:
+    """获取远程默认分支名称
+    
+    Args:
+        cache_path: 缓存路径（可选，不提供则从线程局部存储获取）
+        oauth_session_id: OAuth 会话 ID（可选）
+    
+    Returns:
+        远程默认分支名称
+    """
+    if not cache_path:
+        cache_path = get_current_cache_path()
+    remote_head_result = safe_git_run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
     if remote_head_result.returncode == 0:
         return remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
     return config.BLOG_BRANCH
@@ -120,10 +207,8 @@ def configure_git_user(session_id: Optional[str] = None, cache_path: Optional[st
     # 如果没有 session_id，使用默认配置
     if not session_id:
         logger.info(f"未提供 OAuth 会话 ID，使用默认 Git 用户配置：{default_name}")
-        subprocess.run(['git', 'config', 'user.name', default_name], 
-                     cwd=cache_path, check=True, capture_output=True)
-        subprocess.run(['git', 'config', 'user.email', default_email], 
-                     cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.name', default_name], cache_path, None, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.email', default_email], cache_path, None, check=True, capture_output=True)
         logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
         return
     
@@ -133,10 +218,8 @@ def configure_git_user(session_id: Optional[str] = None, cache_path: Optional[st
     token_info = token_store.get(session_id)
     if not token_info or not token_info.get('access_token'):
         logger.warning(f"OAuth 会话 {session_id[:8]}... 无效或已过期，使用默认 Git 用户配置")
-        subprocess.run(['git', 'config', 'user.name', default_name], 
-                     cwd=cache_path, check=True, capture_output=True)
-        subprocess.run(['git', 'config', 'user.email', default_email], 
-                     cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.name', default_name], cache_path, None, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.email', default_email], cache_path, None, check=True, capture_output=True)
         logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
         return
     
@@ -164,41 +247,43 @@ def configure_git_user(session_id: Optional[str] = None, cache_path: Optional[st
                     git_name = default_name
                     git_email = default_email
                 
-                subprocess.run(['git', 'config', 'user.name', git_name], 
-                             cwd=cache_path, check=True, capture_output=True)
-                subprocess.run(['git', 'config', 'user.email', git_email], 
-                             cwd=cache_path, check=True, capture_output=True)
+                safe_git_run(['git', 'config', 'user.name', git_name], cache_path, None, check=True, capture_output=True)
+                safe_git_run(['git', 'config', 'user.email', git_email], cache_path, None, check=True, capture_output=True)
                 logger.info(f"Git 用户已配置：{git_name} <{git_email}>")
             else:
                 logger.warning(f"获取 GitHub 用户信息失败：{response.status_code}，使用默认配置")
-                subprocess.run(['git', 'config', 'user.name', default_name], 
-                             cwd=cache_path, check=True, capture_output=True)
-                subprocess.run(['git', 'config', 'user.email', default_email], 
-                             cwd=cache_path, check=True, capture_output=True)
+                safe_git_run(['git', 'config', 'user.name', default_name], cache_path, None, check=True, capture_output=True)
+                safe_git_run(['git', 'config', 'user.email', default_email], cache_path, None, check=True, capture_output=True)
                 logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
     except httpx.RequestError as e:
         logger.warning(f"请求 GitHub API 失败：{e}，使用默认配置")
-        subprocess.run(['git', 'config', 'user.name', default_name], 
-                     cwd=cache_path, check=True, capture_output=True)
-        subprocess.run(['git', 'config', 'user.email', default_email], 
-                     cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.name', default_name], cache_path, None, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.email', default_email], cache_path, None, check=True, capture_output=True)
         logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
     except Exception as e:
         logger.warning(f"配置 Git 用户失败：{e}，使用默认配置")
-        subprocess.run(['git', 'config', 'user.name', default_name], 
-                     cwd=cache_path, check=True, capture_output=True)
-        subprocess.run(['git', 'config', 'user.email', default_email], 
-                     cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.name', default_name], cache_path, None, check=True, capture_output=True)
+        safe_git_run(['git', 'config', 'user.email', default_email], cache_path, None, check=True, capture_output=True)
         logger.info(f"Git 用户已配置：{default_name} <{default_email}>")
 
-def git_status() -> list:
+def git_status(cache_path: str = None, oauth_session_id: Optional[str] = None) -> list:
+    """获取 Git 状态
+    
+    Args:
+        cache_path: 缓存路径（可选）
+        oauth_session_id: OAuth 会话 ID（可选）
+    
+    Returns:
+        状态行列表
+    """
     try:
-        cache_path = get_current_cache_path()
+        if not cache_path:
+            cache_path = get_current_cache_path()
         logger.info(f"Git status 操作目录：{cache_path}")
-        output = subprocess.run(['git', 'status', '-s'], cwd=cache_path, capture_output=True, check=True)
+        output = safe_git_run(['git', 'status', '-s'], cache_path, oauth_session_id, capture_output=True, check=True)
         status_lines = [line.strip() for line in output.stdout.decode('utf-8').splitlines()]
         logger.info(f"Git status 结果：{len(status_lines)} 行变更")
-        for line in status_lines[:5]:  # 只显示前 5 行
+        for line in status_lines[:5]:
             logger.info(f"  - {line}")
         if len(status_lines) > 5:
             logger.info(f"  ... 还有 {len(status_lines) - 5} 行")
@@ -207,11 +292,18 @@ def git_status() -> list:
         logger.error(f"Git status 失败：{e}, stderr: {e.stderr.decode('utf-8', errors='ignore')}")
         return []
 
-def git_add():
+def git_add(cache_path: str = None, oauth_session_id: Optional[str] = None):
+    """添加所有文件到 Git 暂存区
+    
+    Args:
+        cache_path: 缓存路径（可选）
+        oauth_session_id: OAuth 会话 ID（可选）
+    """
     try:
-        cache_path = get_current_cache_path()
+        if not cache_path:
+            cache_path = get_current_cache_path()
         logger.info(f"Git add 操作目录：{cache_path}")
-        result = subprocess.run(['git', 'add', '-A'], cwd=cache_path, capture_output=True, check=True)
+        result = safe_git_run(['git', 'add', '-A'], cache_path, oauth_session_id, capture_output=True, check=True)
         logger.info(f"Git add 成功，输出：{result.stdout.decode('utf-8', errors='ignore')[:200]}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Git add 失败：{e}, stderr: {e.stderr.decode('utf-8', errors='ignore')}")
@@ -266,12 +358,21 @@ def deploy():
         logger.error("部署失败：" + str(e))
         raise HTTPException(status_code=500, detail="部署失败")
 
-def git_commit(session_id: Optional[str] = None):
+def git_commit(session_id: Optional[str] = None, oauth_session_id: Optional[str] = None):
+    """提交并推送更改
+    
+    Args:
+        session_id: 会话 ID，用于获取 Git 仓库配置
+        oauth_session_id: OAuth 会话 ID，用于获取访问令牌
+    """
     from fastapi import HTTPException
     from app.file_service import pretty_git_status
     from app.session_manager import session_manager
+    
+    cache_path = get_current_cache_path()
+    
     try:
-        status = git_status()
+        status = git_status(cache_path, oauth_session_id)
         if not status:
             logger.info("没有更改需要提交")
             return
@@ -283,9 +384,7 @@ def git_commit(session_id: Optional[str] = None):
             commit_msg.append(line)
         commit_cmd.extend(commit_msg)
         
-        env = get_git_env(session_id)
-        cache_path = get_current_cache_path()
-        commit_result = subprocess.run(commit_cmd, cwd=cache_path, check=True, env=env, capture_output=True, text=True)
+        commit_result = safe_git_run(commit_cmd, cache_path, oauth_session_id, check=True, capture_output=True, text=True)
         logger.info("提交成功：" + commit_result.stdout)
         
         # 优先使用会话级别的 Git 仓库配置
@@ -297,31 +396,30 @@ def git_commit(session_id: Optional[str] = None):
         if not git_repo:
             raise HTTPException(status_code=500, detail="未配置远程仓库地址")
         
-        ensure_git_remote_config(git_repo)
+        ensure_git_remote_config(git_repo, cache_path, oauth_session_id)
         
-        current_branch = get_current_branch()
+        current_branch = get_current_branch(cache_path, oauth_session_id)
         logger.info("当前分支：" + current_branch)
         
         try:
-            fetch_result = subprocess.run(['git', 'fetch', 'origin'], cwd=cache_path, env=env, capture_output=True, text=True, timeout=60)
+            fetch_result = safe_git_run(['git', 'fetch', 'origin'], cache_path, oauth_session_id, capture_output=True, text=True, timeout=60)
             logger.info("Fetch result: " + fetch_result.stdout)
         except subprocess.TimeoutExpired:
             logger.warning("Fetch 超时，继续推送")
         except subprocess.CalledProcessError as e:
             logger.warning("Fetch 失败：" + (e.stderr if e.stderr else str(e)))
         
-        remote_default_branch = get_remote_default_branch()
+        remote_default_branch = get_remote_default_branch(cache_path, oauth_session_id)
         logger.info("远程默认分支：" + remote_default_branch)
         
-        push_result = subprocess.run(['git', 'push', '-u', 'origin', current_branch + ':' + remote_default_branch], cwd=cache_path, check=True, env=env, capture_output=True, text=True)
+        push_result = safe_git_run(['git', 'push', '-u', 'origin', current_branch + ':' + remote_default_branch], cache_path, oauth_session_id, check=True, capture_output=True, text=True)
         logger.info("推送成功：" + push_result.stdout)
         
         deploy()
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
-        logger.error("Git 操作失败：" + error_msg)  # 详细错误记录到日志
+        logger.error("Git 操作失败：" + error_msg)
         
-        # 返回用户友好的错误信息，不包含敏感路径
         if 'fatal: not a git repository' in error_msg:
             raise HTTPException(status_code=500, detail="不是 Git 仓库，请先初始化")
         elif 'fatal: Authentication failed' in error_msg:
@@ -333,7 +431,7 @@ def git_commit(session_id: Optional[str] = None):
         elif 'fatal: could not read Username' in error_msg:
             raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
         elif 'Permission denied' in error_msg or 'password' in error_msg.lower():
-            logger.error("Git 认证失败")  # 只记录到日志
+            logger.error("Git 认证失败")
             raise HTTPException(status_code=403, detail="Git 认证失败")
         else:
             logger.error("Git 推送失败，详细错误已记录到日志")
@@ -342,7 +440,13 @@ def git_commit(session_id: Optional[str] = None):
         logger.error("提交失败：" + str(e))
         raise HTTPException(status_code=500, detail="提交失败：" + str(e))
 
-async def pull_updates_async(session_id: Optional[str] = None):
+async def pull_updates_async(session_id: Optional[str] = None, oauth_session_id: Optional[str] = None):
+    """拉取远程更新
+    
+    Args:
+        session_id: 会话 ID，用于获取 Git 仓库配置
+        oauth_session_id: OAuth 会话 ID，用于获取访问令牌
+    """
     from fastapi import HTTPException
     from app.session_manager import session_manager
     
@@ -358,58 +462,48 @@ async def pull_updates_async(session_id: Optional[str] = None):
     if not git_repo:
         git_repo = config.BLOG_GIT_SSH
     
-    ensure_git_remote_config(git_repo)
-    env = get_git_env(session_id)
+    ensure_git_remote_config(git_repo, cache_path, oauth_session_id)
     
-    current_branch = get_current_branch()
+    current_branch = get_current_branch(cache_path, oauth_session_id)
     logger.info("当前分支：" + current_branch)
     
     # 检查是否有初始提交
     has_initial_commit = False
     try:
-        commit_result = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=cache_path, env=env, capture_output=True, text=True)
+        commit_result = safe_git_run(['git', 'rev-parse', 'HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
         has_initial_commit = commit_result.returncode == 0
     except Exception as e:
         logger.warning("检查初始提交失败：" + str(e))
     
     # 执行 fetch 操作
     try:
-        result = subprocess.run(['git', 'fetch', 'origin'], check=True, cwd=cache_path, env=env, capture_output=True, text=True)
+        result = safe_git_run(['git', 'fetch', 'origin'], cache_path, oauth_session_id, check=True, capture_output=True, text=True)
         logger.info("Fetch result: " + result.stdout)
     except subprocess.CalledProcessError as e:
         logger.error("Fetch 失败：" + e.stderr)
         raise HTTPException(status_code=500, detail="拉取失败：" + e.stderr)
     
-    remote_default_branch = get_remote_default_branch()
+    remote_default_branch = get_remote_default_branch(cache_path, oauth_session_id)
     logger.info("远程默认分支：" + remote_default_branch)
     
-    status_result = subprocess.run(['git', 'status', '--porcelain'], cwd=cache_path, env=env, capture_output=True, text=True)
+    status_result = safe_git_run(['git', 'status', '--porcelain'], cache_path, oauth_session_id, capture_output=True, text=True)
     local_changes = status_result.stdout.strip() != ''
     
     if local_changes and has_initial_commit:
         try:
-            stash_result = subprocess.run(
+            stash_result = safe_git_run(
                 ['git', 'stash', 'push', '-m', 'auto-stash-before-pull'], 
-                check=True, 
-                cwd=cache_path, 
-                env=env, 
-                capture_output=True,
-                text=True
+                cache_path, oauth_session_id, check=True, capture_output=True, text=True
             )
             logger.info("本地更改已暂存：" + stash_result.stdout)
         except subprocess.CalledProcessError as e:
             logger.error("Stash 失败：" + e.stderr)
-            # 即使 stash 失败，也继续尝试拉取
             logger.warning("Stash 失败，跳过暂存，直接拉取")
     
     try:
-        result = subprocess.run(
+        result = safe_git_run(
             ['git', 'merge', 'origin/' + remote_default_branch], 
-            check=True, 
-            cwd=cache_path, 
-            env=env, 
-            capture_output=True, 
-            text=True
+            cache_path, oauth_session_id, check=True, capture_output=True, text=True
         )
         logger.info("Merge result: " + result.stdout)
     except subprocess.CalledProcessError as e:
@@ -418,12 +512,9 @@ async def pull_updates_async(session_id: Optional[str] = None):
     
     if local_changes:
         try:
-            stash_pop = subprocess.run(
+            stash_pop = safe_git_run(
                 ['git', 'stash', 'pop'], 
-                cwd=cache_path, 
-                env=env, 
-                capture_output=True, 
-                text=True
+                cache_path, oauth_session_id, capture_output=True, text=True
             )
             if stash_pop.returncode == 0:
                 logger.info("本地更改已恢复")
@@ -453,13 +544,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         raise ValueError("必须提供会话路径，不允许使用全局配置")
     cache_path = session_path
     
-    # 记录操作路径，确保不会误操作上级目录
+    # 记录操作路径
     logger.info(f"init_local_git_async 操作路径: {cache_path}")
-    
-    # 安全检查：确保 cache_path 不在当前项目目录内（防止误操作开发目录）
-    current_project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if os.path.abspath(cache_path).startswith(current_project_dir):
-        logger.warning(f"警告：会话路径 {cache_path} 在项目目录 {current_project_dir} 内，可能存在安全风险")
     
     # 优先使用会话级别的 Git 仓库配置
     git_repo = ''
@@ -474,12 +560,13 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         for f in os.listdir(cache_path) if f != '.git'
     ) if os.path.exists(cache_path) else False
     
-    env = get_git_env(oauth_session_id)
+    # 获取安全的 Git 环境变量
+    env = get_safe_git_env(cache_path, oauth_session_id)
     
     if has_git:
         logger.info("Git 仓库已存在，检查远程配置")
         try:
-            remote_result = subprocess.run(['git', 'remote', '-v'], cwd=cache_path, capture_output=True, text=True)
+            remote_result = safe_git_run(['git', 'remote', '-v'], cache_path, oauth_session_id, capture_output=True, text=True)
             has_remote = 'origin' in remote_result.stdout
             
             if has_remote:
@@ -494,21 +581,21 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                     logger.info("仓库存在但没有文件，尝试拉取远程内容")
                     try:
                         # 先 fetch 远程内容
-                        fetch_result = subprocess.run(['git', 'fetch', 'origin'], cwd=cache_path, env=env, capture_output=True, text=True, timeout=60)
+                        fetch_result = safe_git_run(['git', 'fetch', 'origin'], cache_path, oauth_session_id, capture_output=True, text=True, timeout=60)
                         logger.info(f"Fetch 结果: {fetch_result.stdout[:200] if fetch_result.stdout else '无输出'}")
                         
                         # 获取默认分支
-                        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=cache_path, capture_output=True, text=True)
+                        remote_head_result = safe_git_run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
                         if remote_head_result.returncode == 0:
                             default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
                             logger.info(f"远程默认分支: {default_branch}")
                             
                             # 检出分支
-                            checkout_result = subprocess.run(['git', 'checkout', default_branch], cwd=cache_path, capture_output=True, text=True)
+                            checkout_result = safe_git_run(['git', 'checkout', default_branch], cache_path, oauth_session_id, capture_output=True, text=True)
                             logger.info(f"Checkout 结果: {checkout_result.stdout[:200] if checkout_result.stdout else checkout_result.stderr[:200]}")
                             
                             # 重置到远程分支
-                            reset_result = subprocess.run(['git', 'reset', '--hard', f'origin/{default_branch}'], cwd=cache_path, capture_output=True, text=True)
+                            reset_result = safe_git_run(['git', 'reset', '--hard', f'origin/{default_branch}'], cache_path, oauth_session_id, capture_output=True, text=True)
                             logger.info(f"Reset 结果: {reset_result.stdout[:200] if reset_result.stdout else reset_result.stderr[:200]}")
                             
                             # 检查是否有文件
@@ -517,8 +604,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                         else:
                             # 如果无法获取默认分支，尝试直接 checkout
                             logger.warning("无法获取远程默认分支，尝试直接检出")
-                            subprocess.run(['git', 'checkout', 'main'], cwd=cache_path, capture_output=True, text=True)
-                            subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=cache_path, capture_output=True, text=True)
+                            safe_git_run(['git', 'checkout', 'main'], cache_path, oauth_session_id, capture_output=True, text=True)
+                            safe_git_run(['git', 'reset', '--hard', 'origin/main'], cache_path, oauth_session_id, capture_output=True, text=True)
                     except Exception as e:
                         logger.warning(f"拉取远程内容失败：{e}")
                 
@@ -530,7 +617,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                 return {"message": "初始化成功，仓库已连接", "status": "connected"}
             else:
                 if git_repo:
-                    subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
+                    safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
                     try:
                         configure_git_user(oauth_session_id, cache_path=cache_path)
                     except Exception as e:
@@ -577,18 +664,18 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         clone_error = None
         
         try:
-            subprocess.run(
+            safe_git_run(
                 ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, temp_dir],
-                env=env, check=True, capture_output=True, text=True, timeout=120
+                cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
             )
             clone_success = True
         except subprocess.CalledProcessError as e:
             clone_error = e.stderr if e.stderr else str(e)
             if 'Remote branch' in clone_error and 'not found' in clone_error:
                 try:
-                    subprocess.run(
+                    safe_git_run(
                         ['git', 'clone', git_repo, temp_dir],
-                        env=env, check=True, capture_output=True, text=True, timeout=120
+                        cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
                     )
                     clone_success = True
                 except subprocess.CalledProcessError as e2:
@@ -614,7 +701,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
             
-            subprocess.run(['git', 'add', '-A'], cwd=cache_path, check=True, capture_output=True)
+            safe_git_run(['git', 'add', '-A'], cache_path, oauth_session_id, check=True, capture_output=True)
             logger.info("本地文件已保留，远程仓库已连接")
             return {"message": "初始化成功，本地文件已保留", "status": "preserved_local"}
         else:
@@ -627,7 +714,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     
     elif has_files and not git_repo:
         logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
-        subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
         configure_git_user(oauth_session_id, cache_path=cache_path)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
     
@@ -649,18 +736,18 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         clone_error = None
         
         try:
-            subprocess.run(
+            safe_git_run(
                 ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, cache_path],
-                env=env, check=True, capture_output=True, text=True, timeout=120
+                cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
             )
             clone_success = True
         except subprocess.CalledProcessError as e:
             clone_error = e.stderr if e.stderr else str(e)
             if 'Remote branch' in clone_error and 'not found' in clone_error:
                 try:
-                    subprocess.run(
+                    safe_git_run(
                         ['git', 'clone', git_repo, cache_path],
-                        env=env, check=True, capture_output=True, text=True, timeout=120
+                        cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
                     )
                     clone_success = True
                 except subprocess.CalledProcessError as e2:
@@ -674,8 +761,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                 logger.error(f"配置 Git 用户失败：{e}")
             return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
         elif clone_error and 'empty repository' in clone_error.lower():
-            subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
-            subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
+            safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
+            safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
             configure_git_user(oauth_session_id, cache_path=cache_path)
             logger.info("空仓库初始化成功")
             return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
@@ -690,15 +777,16 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     else:
         logger.info("本地无文件，无远程仓库配置，初始化空仓库")
         os.makedirs(cache_path, exist_ok=True)
-        subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
+        safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
         configure_git_user(oauth_session_id, cache_path=cache_path)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
 
-def sync_branch_name(cache_path: str = None):
+def sync_branch_name(cache_path: str = None, oauth_session_id: Optional[str] = None):
     """同步本地分支名称与远程仓库的默认分支
     
     Args:
         cache_path: 缓存路径（必须提供）
+        oauth_session_id: OAuth 会话 ID（可选）
     
     Raises:
         ValueError: 当未提供 cache_path 时抛出
@@ -712,27 +800,26 @@ def sync_branch_name(cache_path: str = None):
         if not os.path.exists(os.path.join(path, '.git')):
             return
         
-        current_branch_result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=path, capture_output=True, text=True)
+        current_branch_result = safe_git_run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], path, oauth_session_id, capture_output=True, text=True)
         if current_branch_result.returncode != 0:
             return
         current_branch = current_branch_result.stdout.strip()
         
-        remote_result = subprocess.run(['git', 'remote', '-v'], cwd=path, capture_output=True, text=True)
+        remote_result = safe_git_run(['git', 'remote', '-v'], path, oauth_session_id, capture_output=True, text=True)
         if 'origin' not in remote_result.stdout:
             return
         
-        env = get_git_env()
-        subprocess.run(['git', 'fetch', 'origin'], cwd=path, env=env, capture_output=True, text=True, timeout=60)
+        safe_git_run(['git', 'fetch', 'origin'], path, oauth_session_id, capture_output=True, text=True, timeout=60)
         
-        remote_head_result = subprocess.run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cwd=path, capture_output=True, text=True)
+        remote_head_result = safe_git_run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], path, oauth_session_id, capture_output=True, text=True)
         if remote_head_result.returncode != 0:
             return
         remote_default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
         
         if current_branch != remote_default_branch:
             logger.info(f"本地分支 '{current_branch}' 与远程分支 '{remote_default_branch}' 不一致，正在重命名...")
-            subprocess.run(['git', 'branch', '-m', current_branch, remote_default_branch], cwd=path, check=True, capture_output=True)
-            subprocess.run(['git', 'branch', '--set-upstream-to=origin/' + remote_default_branch, remote_default_branch], cwd=path, capture_output=True)
+            safe_git_run(['git', 'branch', '-m', current_branch, remote_default_branch], path, oauth_session_id, check=True, capture_output=True)
+            safe_git_run(['git', 'branch', '--set-upstream-to=origin/' + remote_default_branch, remote_default_branch], path, oauth_session_id, capture_output=True)
             logger.info(f"已将本地分支重命名为 '{remote_default_branch}' 并设置跟踪远程分支")
     except Exception as e:
         logger.warning("同步分支名称时出错：" + str(e))

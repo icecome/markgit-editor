@@ -1,14 +1,35 @@
 import os
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger
 from app.routes import router
 from app.cleanup_service import cleanup_service
 from app.auth.routes import router as auth_router
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+            origin = request.headers.get("origin", "")
+            referer = request.headers.get("referer", "")
+            
+            allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
+            
+            if origin:
+                if origin not in allowed_origins:
+                    logger.warning(f"CSRF 保护：拒绝来自未知 Origin 的请求：{origin}")
+                    raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid origin")
+            elif referer:
+                referer_valid = any(referer.startswith(origin) for origin in allowed_origins)
+                if not referer_valid:
+                    logger.warning(f"CSRF 保护：拒绝来自未知 Referer 的请求：{referer}")
+                    raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid referer")
+        
+        return await call_next(request)
 
 app = FastAPI(title="MarkGit Editor API", version="1.2.0")
 
@@ -19,6 +40,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+app.add_middleware(CSRFMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

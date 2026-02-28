@@ -316,14 +316,18 @@ def get_categories():
         raise HTTPException(status_code=500, detail="获取分类失败")
 
 @router.get("/posts/changes", response_model=ApiResponse)
-def get_post_changes(x_session_id: Optional[str] = Header(None)):
+def get_post_changes(x_session_id: Optional[str] = Header(None),
+                     x_oauth_session_id: Optional[str] = Header(None)):
     try:
-        # 设置会话上下文
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
         setup_git_context(x_session_id)
         delete_image_not_included()
-        git_add()
-        status_result_for_show = pretty_git_status(git_status())
+        git_add(cache_path=get_session_path(x_session_id), oauth_session_id=x_oauth_session_id)
+        status_result_for_show = pretty_git_status(git_status(cache_path=get_session_path(x_session_id), oauth_session_id=x_oauth_session_id))
         return ApiResponse(data=status_result_for_show)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("获取帖子更改失败：" + str(e))
         raise HTTPException(status_code=500, detail="获取帖子更改失败")
@@ -544,7 +548,7 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
             raise HTTPException(status_code=500, detail="初始化失败：" + str(e))
         finally:
             try:
-                sync_branch_name(cache_path=base_path)
+                sync_branch_name(cache_path=base_path, oauth_session_id=x_oauth_session_id)
             except Exception as e:
                 logger.warning("同步分支名称失败：" + str(e))
 
@@ -554,9 +558,10 @@ async def pull_repo(x_session_id: Optional[str] = Header(None),
     """拉取远程更新，支持会话隔离"""
     async with git_operation_lock:
         try:
+            if not x_session_id:
+                raise HTTPException(status_code=400, detail="请先创建会话")
             setup_git_context(x_session_id)
-            # 传递 OAuth session_id 用于获取访问令牌
-            await pull_updates_async(session_id=x_oauth_session_id)
+            await pull_updates_async(session_id=x_session_id, oauth_session_id=x_oauth_session_id)
             logger.info("已成功拉取最新更改")
             return ApiResponse(message="拉取成功")
         except HTTPException:
@@ -614,9 +619,10 @@ async def commit(x_session_id: Optional[str] = Header(None),
                  x_oauth_session_id: Optional[str] = Header(None)):
     async with git_operation_lock:
         try:
+            if not x_session_id:
+                raise HTTPException(status_code=400, detail="请先创建会话")
             setup_git_context(x_session_id)
-            # 传递 OAuth session_id 用于获取访问令牌
-            git_commit(session_id=x_oauth_session_id)
+            git_commit(session_id=x_session_id, oauth_session_id=x_oauth_session_id)
             logger.info("更改已提交并推送")
             return ApiResponse(message="更改已提交并推送")
         except HTTPException:
