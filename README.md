@@ -17,7 +17,7 @@
 
 ```
 markgit-editor/
-├── app.py                          # 后端主应用（FastAPI）
+├── main.py                         # 后端主应用（FastAPI）
 ├── index.html                      # 前端主页面（Vue 3）
 ├── .env.example                    # 环境变量示例
 ├── requirements.txt                # Python 依赖
@@ -88,7 +88,7 @@ GITHUB_SCOPE=repo,workflow
 ### 4. 启动服务器
 
 ```bash
-python app.py
+python main.py
 ```
 
 ### 5. 访问应用
