@@ -32,7 +32,7 @@ class SessionManager:
         if self._initialized:
             return
         
-        self.cache_base_path = BLOG_CACHE_PATH
+        self.cache_base_path = os.path.normpath(BLOG_CACHE_PATH)
         self.sessions_dir = os.path.join(self.cache_base_path, '.sessions')
         self.sessions_file = os.path.join(self.sessions_dir, 'sessions.json')
         self.sessions: Dict[str, Dict[str, Any]] = {}
@@ -76,7 +76,7 @@ class SessionManager:
         """
         session_id = str(uuid.uuid4())
         user_id = user_id or session_id
-        session_path = os.path.join(self.cache_base_path, f"user_{user_id}")
+        session_path = os.path.normpath(os.path.join(self.cache_base_path, f"user_{user_id}"))
         
         # 如果是老用户，清理旧会话（单用户单会话策略）
         if clean_old and user_id:

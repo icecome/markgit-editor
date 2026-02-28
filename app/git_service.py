@@ -720,8 +720,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     elif not has_files and git_repo:
         logger.info("本地无文件，克隆远程仓库")
         
-        # 确保父目录存在
-        parent_dir = os.path.dirname(cache_path)
+        # 确保父目录存在 - 使用 os.path.normpath 处理路径分隔符
+        parent_dir = os.path.normpath(os.path.dirname(cache_path))
         if not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
             logger.info(f"创建父目录：{parent_dir}")
@@ -742,8 +742,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                 logger.info("目录已存在但为空，删除后重新克隆")
                 shutil.rmtree(cache_path, ignore_errors=True)
         
-        # 克隆到临时目录，然后移动
-        temp_dir = cache_path + "_clone_temp_" + str(int(time.time()))
+        # 克隆到临时目录，然后移动 - 使用 os.path.normpath
+        temp_dir = os.path.normpath(cache_path + "_clone_temp_" + str(int(time.time())))
         
         clone_success = False
         clone_error = None

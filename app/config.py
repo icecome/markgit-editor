@@ -9,7 +9,7 @@ load_dotenv()
 
 # 基础路径配置
 BASE_DIR = Path(__file__).resolve().parent.parent
-BLOG_CACHE_PATH = os.getenv('BLOG_CACHE_PATH', str(BASE_DIR / 'blog_cache'))
+BLOG_CACHE_PATH = os.path.normpath(os.getenv('BLOG_CACHE_PATH', str(BASE_DIR / 'blog_cache')))
 POSTS_PATH = os.path.join(BLOG_CACHE_PATH, 'content', 'posts')
 NEW_BLOG_TEMPLATE_PATH = os.path.join(BLOG_CACHE_PATH, 'archetypes', 'posts.md')
 
