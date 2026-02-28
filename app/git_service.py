@@ -720,6 +720,12 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     elif not has_files and git_repo:
         logger.info("本地无文件，克隆远程仓库")
         
+        # 确保父目录存在
+        parent_dir = os.path.dirname(cache_path)
+        if not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+            logger.info(f"创建父目录：{parent_dir}")
+        
         # 如果目录已存在，先删除或备份
         if os.path.exists(cache_path):
             if os.listdir(cache_path):
@@ -761,6 +767,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                     clone_error = e2.stderr if e2.stderr else str(e2)
         
         if clone_success:
+            # 确保目标父目录存在
+            os.makedirs(parent_dir, exist_ok=True)
             # 移动克隆的文件到目标目录
             shutil.move(temp_dir, cache_path)
             logger.info("远程仓库克隆成功")
