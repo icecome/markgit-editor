@@ -108,10 +108,68 @@ def get_remote_default_branch() -> str:
         return remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
     return config.BLOG_BRANCH
 
-def configure_git_user():
+def configure_git_user(session_id: Optional[str] = None):
+    """
+    配置 Git 用户信息
+    
+    Args:
+        session_id: 会话 ID，用于获取 OAuth 令牌和用户信息
+        
+    Raises:
+        ValueError: 未提供 session_id 或无法获取 GitHub 用户信息时抛出
+    """
     cache_path = get_current_cache_path()
-    subprocess.run(['git', 'config', 'user.name', 'BlogEditor'], cwd=cache_path, check=True, capture_output=True)
-    subprocess.run(['git', 'config', 'user.email', 'editor@blog.local'], cwd=cache_path, check=True, capture_output=True)
+    
+    # 必须提供 session_id
+    if not session_id:
+        logger.error("未提供会话 ID，无法配置 Git 用户")
+        raise ValueError("必须提供会话 ID 以配置 Git 用户信息")
+    
+    from app.auth.token_store import token_store
+    
+    token_info = token_store.get(session_id)
+    if not token_info or not token_info.get('access_token'):
+        logger.error(f"会话 {session_id} 无效或已过期")
+        raise ValueError("无效的会话 ID 或未找到访问令牌")
+    
+    try:
+        # 使用同步 HTTP 客户端获取 GitHub 用户信息
+        import httpx
+        with httpx.Client(verify=False) as client:
+            response = client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"token {token_info['access_token']}",
+                    "Accept": "application/json",
+                    "User-Agent": "MarkGit-Editor"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                user_info = response.json()
+                # 使用 GitHub 用户名和邮箱
+                git_name = user_info.get('name') or user_info.get('login')
+                git_email = user_info.get('email') or f"{user_info.get('login')}@users.noreply.github.com"
+                
+                if not git_name:
+                    logger.error("GitHub 用户信息中未找到用户名")
+                    raise ValueError("无法从 GitHub 获取用户名")
+                
+                subprocess.run(['git', 'config', 'user.name', git_name], 
+                             cwd=cache_path, check=True, capture_output=True)
+                subprocess.run(['git', 'config', 'user.email', git_email], 
+                             cwd=cache_path, check=True, capture_output=True)
+                logger.info(f"Git 用户已配置：{git_name} <{git_email}>")
+            else:
+                logger.error(f"获取 GitHub 用户信息失败：{response.status_code} - {response.text}")
+                raise ValueError(f"获取 GitHub 用户信息失败：{response.status_code}")
+    except httpx.RequestError as e:
+        logger.error(f"请求 GitHub API 失败：{e}")
+        raise ValueError(f"无法连接 GitHub：{str(e)}")
+    except Exception as e:
+        logger.error(f"配置 Git 用户失败：{e}")
+        raise
 
 def git_status() -> list:
     try:
@@ -373,7 +431,11 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
             else:
                 if git_repo:
                     subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
-                    configure_git_user()
+                    try:
+                        configure_git_user(session_id)
+                    except Exception as e:
+                        logger.error(f"配置 Git 用户失败：{e}")
+                        # 继续执行，不影响初始化
                     logger.info("已设置远程仓库配置")
                     return {"message": "初始化成功，远程仓库已配置", "status": "remote_configured"}
                 else:
@@ -436,7 +498,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         if clone_success or (clone_error and 'empty repository' in clone_error.lower()):
             if os.path.exists(os.path.join(temp_dir, '.git')):
                 shutil.copytree(os.path.join(temp_dir, '.git'), os.path.join(cache_path, '.git'))
-            configure_git_user()
+            configure_git_user(session_id)
             
             if clone_success and os.path.exists(temp_dir):
                 for item in os.listdir(temp_dir):
@@ -467,7 +529,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     elif has_files and not git_repo:
         logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
         subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
-        configure_git_user()
+        configure_git_user(session_id)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
     
     elif not has_files and git_repo:
@@ -507,11 +569,16 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         
         if clone_success:
             logger.info("远程仓库克隆成功")
+            try:
+                configure_git_user(session_id)
+            except Exception as e:
+                logger.error(f"配置 Git 用户失败：{e}")
+                # 继续执行，不影响初始化
             return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
         elif clone_error and 'empty repository' in clone_error.lower():
             subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
             subprocess.run(['git', 'remote', 'add', 'origin', git_repo], cwd=cache_path, check=True, capture_output=True)
-            configure_git_user()
+            configure_git_user(session_id)
             logger.info("空仓库初始化成功")
             return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
         else:
@@ -526,7 +593,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         logger.info("本地无文件，无远程仓库配置，初始化空仓库")
         os.makedirs(cache_path, exist_ok=True)
         subprocess.run(['git', 'init', '-b', 'main'], cwd=cache_path, check=True, capture_output=True)
-        configure_git_user()
+        configure_git_user(session_id)
         return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
 
 def sync_branch_name(cache_path: str = None):

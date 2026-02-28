@@ -642,7 +642,11 @@
                     </ul>
                     <div class="form-actions">
                         <button class="btn btn-secondary" @click="closePanel">取消</button>
-                        <button class="btn btn-success" @click="commit">提交变更</button>
+                        <button class="btn btn-success" @click="commit" :disabled="committing">
+                            <i data-lucide="git-commit" style="width: 16px; height: 16px;" v-if="!committing"></i>
+                            <i data-lucide="loader-2" style="width: 16px; height: 16px; animation: spin 1s linear infinite;" v-else></i>
+                            <span>{{ committing ? '提交中...' : '提交变更' }}</span>
+                        </button>
                     </div>
                 </div>
             </div>

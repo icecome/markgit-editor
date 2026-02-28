@@ -561,7 +561,7 @@ async def reset(x_session_id: Optional[str] = Header(None)):
                 except Exception as backup_error:
                     logger.warning("备份失败，继续重置：" + str(backup_error))
             setup_git_context(x_session_id)
-            await init_local_git_async(session_path=base_path)
+            await init_local_git_async(session_path=base_path, session_id=x_oauth_session_id)
             logger.info("工作区重置完成")
             return ApiResponse(message="工作区重置完成")
         except HTTPException:

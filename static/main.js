@@ -86,6 +86,7 @@ if (typeof Vue !== 'undefined') {
                 editorMode: localStorage.getItem('editorMode') || 'wysiwyg',
                 hasUnsavedChanges: false,
                 saving: false,
+                committing: false,
                 lastSavedContent: '',
                 sessionId: sessionStorage.getItem('sessionId') || '',  // 使用 sessionStorage
                 userId: localStorage.getItem('userId') || '',  // userId 持久化
@@ -228,8 +229,15 @@ if (typeof Vue !== 'undefined') {
             toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
             selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
             async commit() {
-                try { await axios.post('/api/commit', {}, { headers: this.getHeaders() }); this.closePanel(); this.showToast('提交成功', 'success'); this.changes = []; }
+                this.committing = true;
+                try { 
+                    await axios.post('/api/commit', {}, { headers: this.getHeaders() }); 
+                    this.closePanel(); 
+                    this.showToast('提交成功', 'success'); 
+                    this.changes = []; 
+                }
                 catch (error) { this.errorHandler(error); }
+                finally { this.committing = false; }
             },
             async showChangesPanel() {
                 try { const response = await axios.get('/api/posts/changes', { headers: this.getHeaders() }); this.changes = response.data.data || []; this.panelTitle = '提交变更'; this.panelType = 'changes'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); }
