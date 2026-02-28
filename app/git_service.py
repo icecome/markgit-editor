@@ -721,23 +721,31 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     elif not has_files and git_repo:
         logger.info("本地无文件，克隆远程仓库")
         
-        # 如果目录已存在，先备份并清空
-        if os.path.exists(cache_path) and os.listdir(cache_path):
-            backup_path = cache_path + "_backup_" + str(int(time.time()))
-            logger.info("目录已存在，备份到：" + backup_path)
-            try:
-                shutil.move(cache_path, backup_path)
-            except Exception as e:
-                logger.warning("备份目录失败：" + str(e))
+        # 如果目录已存在，先删除或备份
+        if os.path.exists(cache_path):
+            if os.listdir(cache_path):
+                # 目录非空，备份
+                backup_path = cache_path + "_backup_" + str(int(time.time()))
+                logger.info("目录已存在且非空，备份到：" + backup_path)
+                try:
+                    shutil.move(cache_path, backup_path)
+                except Exception as e:
+                    logger.warning("备份目录失败，尝试删除：" + str(e))
+                    shutil.rmtree(cache_path, ignore_errors=True)
+            else:
+                # 目录为空，直接删除
+                logger.info("目录已存在但为空，删除后重新克隆")
+                shutil.rmtree(cache_path, ignore_errors=True)
         
-        os.makedirs(cache_path, exist_ok=True)
+        # 克隆到临时目录，然后移动
+        temp_dir = cache_path + "_clone_temp_" + str(int(time.time()))
         
         clone_success = False
         clone_error = None
         
         try:
             safe_git_run(
-                ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, cache_path],
+                ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, temp_dir],
                 cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
             )
             clone_success = True
@@ -746,7 +754,7 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
             if 'Remote branch' in clone_error and 'not found' in clone_error:
                 try:
                     safe_git_run(
-                        ['git', 'clone', git_repo, cache_path],
+                        ['git', 'clone', git_repo, temp_dir],
                         cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
                     )
                     clone_success = True
@@ -754,6 +762,8 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                     clone_error = e2.stderr if e2.stderr else str(e2)
         
         if clone_success:
+            # 移动克隆的文件到目标目录
+            shutil.move(temp_dir, cache_path)
             logger.info("远程仓库克隆成功")
             try:
                 configure_git_user(oauth_session_id, cache_path=cache_path)
@@ -761,12 +771,20 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
                 logger.error(f"配置 Git 用户失败：{e}")
             return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
         elif clone_error and 'empty repository' in clone_error.lower():
+            # 空仓库
+            os.makedirs(cache_path, exist_ok=True)
             safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
             safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
             configure_git_user(oauth_session_id, cache_path=cache_path)
+            # 清理临时目录
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             logger.info("空仓库初始化成功")
             return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
         else:
+            # 清理临时目录
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             error_msg = clone_error or "未知错误"
             if 'Repository not found' in error_msg or 'not found' in error_msg.lower():
                 raise HTTPException(status_code=500, detail="仓库未找到，请检查地址和访问权限")
