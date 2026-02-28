@@ -60,48 +60,29 @@ class GitHubOAuthService:
             return None
         
         try:
-            # 使用 SSL 验证（生产环境），但允许在开发环境跳过验证
-            try:
-                async with httpx.AsyncClient(verify=False) as client:
-                    response = await client.post(
-                        self.device_code_url,
-                        data={
-                            "client_id": self.client_id,
-                            "scope": self.scope
-                        },
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
-            except Exception as e:
-                # 如果禁用验证仍然失败，使用默认配置
-                logger.warning(f"SSL 验证失败，使用默认配置：{e}")
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        self.device_code_url,
-                        data={
-                            "client_id": self.client_id,
-                            "scope": self.scope
-                        },
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
+            logger.info(f"正在请求新的设备码，Client ID: {self.client_id[:8]}...")
             
-            # 检查响应状态码
+            async with httpx.AsyncClient(verify=False) as client:
+                response = await client.post(
+                    self.device_code_url,
+                    data={
+                        "client_id": self.client_id,
+                        "scope": self.scope
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "MarkGit-Editor"
+                    },
+                    timeout=10.0
+                )
+            
             if response.status_code != 200:
                 logger.error(f"请求设备码失败：{response.status_code} - {response.text}")
                 return None
             
-            # 解析响应
             data = response.json()
-            logger.info(f"GitHub 返回数据：{data.keys() if isinstance(data, dict) else '非字典格式'}")
+            logger.info(f"GitHub 返回设备码：user_code={data.get('user_code')}, expires_in={data.get('expires_in')}秒")
             
-            # 创建设备码对象
             device_code = DeviceCode(
                 device_code=data['device_code'],
                 user_code=data['user_code'],
@@ -111,10 +92,9 @@ class GitHubOAuthService:
                 created_at=datetime.now()
             )
             
-            # 存储设备码
             self.device_codes[device_code.device_code] = device_code
             
-            logger.info(f"设备码已创建：{device_code.user_code}")
+            logger.info(f"新设备码已创建：{device_code.user_code}")
             return device_code
             
         except httpx.RequestError as e:

@@ -9,7 +9,9 @@ class OAuthComponent {
         this.oauthAuthenticated = false;
         this.oauthUser = null;
         this.oauthPollTimer = null;
-        this.pollInterval = 5000; // 5 秒
+        this.pollInterval = 5000;
+        this.isRequestingDeviceCode = false;
+        this.currentDeviceCode = null;
     }
 
     /**
@@ -37,21 +39,33 @@ class OAuthComponent {
      * 开始 OAuth 登录流程
      */
     async startLogin() {
+        if (this.isRequestingDeviceCode) {
+            console.log('Already requesting device code, please wait...');
+            return;
+        }
+        
+        if (this.currentDeviceCode) {
+            console.log('Device code already exists, showing existing dialog');
+            this.showAuthDialog(this.currentDeviceCode);
+            this.startPolling(this.currentDeviceCode);
+            return;
+        }
+        
+        this.isRequestingDeviceCode = true;
+        
         try {
-            // 1. 请求设备码
             const response = await axios.get('/api/auth/device-code');
             const deviceCode = response.data;
             
-            // 2. 显示授权对话框
+            this.currentDeviceCode = deviceCode;
+            
             this.showAuthDialog(deviceCode);
             
-            // 3. 开始轮询
             this.startPolling(deviceCode);
             
         } catch (error) {
             console.error('OAuth 登录失败:', error);
             
-            // 显示错误模态框
             let errorMsg = 'OAuth 登录失败';
             if (error.response) {
                 if (error.response.status === 404) {
@@ -63,8 +77,9 @@ class OAuthComponent {
                 }
             }
             
-            // 使用浏览器原生 confirm/ alert 太简陋，创建一个简单的错误提示
             this.showErrorDialog(errorMsg);
+        } finally {
+            this.isRequestingDeviceCode = false;
         }
     }
 
@@ -135,6 +150,7 @@ class OAuthComponent {
             this.currentDialog = null;
         }
         this.stopPolling();
+        this.currentDeviceCode = null;
     }
 
     /**
