@@ -6,6 +6,7 @@
  * 2. 只渲染新的或重新创建的图标
  * 3. 使用 requestAnimationFrame 优化渲染时机
  * 4. 使用防抖避免频繁调用
+ * 5. 强制重新渲染所有图标，确保不遗漏
  */
 const IconRenderer = {
     timer: null,
@@ -18,30 +19,21 @@ const IconRenderer = {
     render() {
         if (this.pending) return;
         this.pending = true;
+        
+        // 使用 requestAnimationFrame 确保 DOM 已准备好
         requestAnimationFrame(() => {
             try {
                 if (typeof lucide !== 'undefined') {
-                    // 检查是否有新的图标需要渲染
+                    // 强制重新渲染所有图标（解决初始不显示问题）
+                    // 这是关键：每次都要重新渲染，确保所有图标都显示
+                    lucide.createIcons();
+                    
+                    // 更新已渲染图标集合
+                    this.renderedIcons.clear();
                     const elements = document.querySelectorAll('[data-lucide]');
-                    let hasNewIcons = false;
-                    
                     elements.forEach(el => {
-                        const iconName = el.getAttribute('data-lucide');
-                        // 如果图标没有渲染过，或者元素被重新创建了（没有子元素）
-                        if (!this.renderedIcons.has(iconName) || !el.querySelector('svg')) {
-                            hasNewIcons = true;
-                        }
+                        this.renderedIcons.add(el.getAttribute('data-lucide'));
                     });
-                    
-                    // 只有在新图标时才重新渲染
-                    if (hasNewIcons) {
-                        lucide.createIcons();
-                        // 更新已渲染图标集合
-                        this.renderedIcons.clear();
-                        elements.forEach(el => {
-                            this.renderedIcons.add(el.getAttribute('data-lucide'));
-                        });
-                    }
                 }
             } catch (error) {
                 // 忽略图标渲染错误，通常是因为元素还未准备好
@@ -104,7 +96,7 @@ const TreeNode = {
     },
     template: `
         <div>
-            <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu">
+            <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu" :title="node.name">
                 <span class="tree-toggle" v-if="node.type === 'directory'" @click.stop="toggle" :class="{ 'expanded': isExpanded }">
                     <i v-if="hasChildren" data-lucide="chevron-right" style="width: 16px; height: 16px;"></i>
                 </span>
@@ -113,8 +105,8 @@ const TreeNode = {
                     <i v-if="node.type === 'directory'" data-lucide="folder" style="width: 16px; height: 16px;"></i>
                     <i v-else data-lucide="file-text" style="width: 16px; height: 16px;"></i>
                 </span>
-                <span class="tree-name">{{ node.name }}</span>
-                <span v-if="node.type === 'file' && node.size" class="file-size">{{ formatSize(node.size) }}</span>
+                <span class="tree-name" :title="node.name">{{ node.name }}</span>
+                <span v-if="node.type === 'file' && node.size" class="file-size" :title="formatSize(node.size)">{{ formatSize(node.size) }}</span>
                 <div class="tree-actions">
                     <span class="tree-action-btn" @click.stop="$emit('rename', node)" title="重命名">
                         <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
@@ -157,6 +149,8 @@ if (typeof Vue !== 'undefined') {
                 hasUnsavedChanges: false,
                 saving: false,
                 committing: false,
+                loading: false,
+                loadingText: '正在加载文件...',
                 lastSavedContent: '',
                 sessionId: sessionStorage.getItem('sessionId') || '',
                 userId: localStorage.getItem('userId') || '',
@@ -521,12 +515,18 @@ if (typeof Vue !== 'undefined') {
                     details: modalDetails,
                     confirmClass: 'btn-primary',
                     callback: async () => {
+                        this.loading = true;  // 开始加载
+                        this.loadingText = '正在初始化仓库...';  // 添加加载文本
                         try {
                             const response = await axios.post('/api/init', { gitRepo: this.gitRepo }, { headers: this.getHeaders() });
                             await this.getFiles();
                             await this.checkSessionStatus();
                             this.showToast(response.data.message || '初始化成功', 'success');
                         } catch (error) { this.errorHandler(error); }
+                        finally {
+                            this.loading = false;  // 加载完成
+                            this.loadingText = '正在加载文件...';  // 恢复默认文本
+                        }
                     }
                 });
             },
@@ -541,6 +541,8 @@ if (typeof Vue !== 'undefined') {
                     return;
                 }
                 
+                this.loading = true;  // 开始加载
+                this.loadingText = '正在拉取远程更改...';  // 添加加载文本
                 try { 
                     await axios.post('/api/pull', {}, { headers: this.getHeaders() }); 
                     await this.getFiles(); 
@@ -548,6 +550,10 @@ if (typeof Vue !== 'undefined') {
                 }
                 catch (error) { 
                     this.errorHandler(error); 
+                }
+                finally {
+                    this.loading = false;  // 加载完成
+                    this.loadingText = '正在加载文件...';  // 恢复默认文本
                 }
             },
             showNewFilePanel() { this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; },
@@ -850,6 +856,8 @@ if (typeof Vue !== 'undefined') {
                     this.files = response.data.data || [];
                     this.buildFileTree();
                     
+                    // 等待 DOM 更新后渲染图标
+                    await this.$nextTick();
                     IconRenderer.render();
                     
                     if (this.files.length === 0 && this.sessionId) {
@@ -881,6 +889,11 @@ if (typeof Vue !== 'undefined') {
                     return { ...node, children };
                 };
                 this.fileTree = Object.values(root.children).map(convertToArray).sort((a, b) => { if (a.type !== b.type) return a.type === 'directory' ? -1 : 1; return a.name.localeCompare(b.name); });
+                
+                // 构建完成后立即渲染图标
+                this.$nextTick(() => {
+                    IconRenderer.render();
+                });
             },
             createEditor(filePath, rawContent) {
                 if (this.contentEditor) this.contentEditor.destroy();
@@ -908,8 +921,17 @@ if (typeof Vue !== 'undefined') {
                     mode: this.editorMode,
                     after: () => { 
                         self.contentEditor.setValue(rawContent); 
-                        self.lastSavedContent = rawContent; 
+                        self.lastSavedContent = rawContent;
+                        // 编辑器创建完成后渲染图标
+                        self.$nextTick(() => {
+                            IconRenderer.render();
+                        });
                     }
+                });
+                
+                // 额外渲染一次，确保保存按钮等图标显示
+                this.$nextTick(() => {
+                    IconRenderer.render();
                 });
             },
             errorHandler(error) {

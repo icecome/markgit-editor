@@ -229,7 +229,10 @@
 
             <div class="sidebar-content">
                 <div v-if="loading" class="loading">
-                    <div class="loading-spinner"></div>
+                    <div class="loading-container">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">{{ loadingText || '正在加载文件...' }}</div>
+                    </div>
                 </div>
                 <div v-else-if="fileTree.length === 0" class="empty-state">
                     <i data-lucide="folder-open" style="width: 32px; height: 32px;"></i>
@@ -688,7 +691,7 @@
         </div>
     </div>
 
-    <div class="toast" :class="[toastType, { 'show': toastVisible }]">
+    <div class="toast" :class="[toastType, { 'show': toastVisible }]" v-cloak>
         <i :data-lucide="toastIcon" style="width: 16px; height: 16px;"></i>
         <span>{{ toastMessage }}</span>
     </div>
