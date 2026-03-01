@@ -235,8 +235,12 @@ class OAuthComponent {
         // 先清理旧的定时器，防止内存泄漏
         this.stopPolling();
         
-        // 使用 GitHub 返回的间隔时间，默认 5 秒
-        let pollInterval = (deviceCode.interval || 5) * 1000;
+        // 使用实例属性存储轮询间隔，默认 5 秒
+        if (!this.pollInterval || this.pollInterval === 5000) {
+            this.pollInterval = (deviceCode.interval || 5) * 1000;
+        }
+        
+        console.log(`开始轮询，间隔: ${this.pollInterval/1000}秒`);
         
         this.pollTimer = setInterval(async () => {
             try {

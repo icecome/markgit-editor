@@ -204,10 +204,10 @@ class GitHubOAuthService:
                     return None, "expired_token"
                 elif error == "slow_down":
                     # GitHub 要求降低轮询频率
-                    new_interval = data.get("interval", 15)
+                    new_interval = data.get("interval", dc.interval + 5)
                     dc.interval = new_interval
                     logger.warning(f"GitHub 要求降低轮询频率，新间隔：{new_interval}秒")
-                    return None, "authorization_pending"
+                    return None, "slow_down"
                 else:
                     logger.error(f"轮询令牌失败：{error} - {data.get('error_description', '')}")
                     return None, error

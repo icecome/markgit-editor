@@ -30,7 +30,7 @@ COPY requirements.txt .
 
 # [2/4] 安装 Python 依赖
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt \
+    pip install --no-cache-dir -r requirements.txt
 
 # [3/4] 复制应用代码
 COPY . .
