@@ -7,7 +7,7 @@ services:
       args:
         # 使用华为云镜像仓库（国内加速）
         BASE_IMAGE: ${BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim}
-        # 使用中科大 APT 镜像源（更稳定）
+        # 使用中科大 Debian 镜像源（与基础镜像匹配）
         APT_MIRROR: ${APT_MIRROR:-mirrors.ustc.edu.cn}
     container_name: markgit-editor
     # DNS 配置 - 解决国内网络 DNS 解析问题

@@ -5,7 +5,8 @@ ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-sl
 FROM ${BASE_IMAGE}
 
 # APT 镜像源 - 根据基础镜像自动选择
-# 国内镜像使用华为云/阿里云，国外使用官方源
+# 国内镜像使用中科大/阿里云/清华大学，国外使用官方源
+# Debian 镜像使用：deb.debian.org 或 mirrors.ustc.edu.cn/debian
 ARG APT_MIRROR=mirrors.ustc.edu.cn
 
 LABEL maintainer="MarkGit Editor Team"
@@ -13,12 +14,12 @@ LABEL version="1.2.0"
 LABEL description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
 
 # [1/4] 安装系统依赖 - 使用国内镜像源加速
-# 国内环境：使用中科大/华为云/阿里云镜像
-# 国外环境：使用官方源（设置 APT_MIRROR=archive.ubuntu.com）
+# 国内环境：使用中科大/阿里云/清华大学 Debian 镜像
+# 国外环境：使用官方源（设置 APT_MIRROR=deb.debian.org）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "📦 正在配置 APT 镜像源：${APT_MIRROR}" && \
-    printf "deb http://${APT_MIRROR}/ubuntu/ jammy main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-updates main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-backports main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-security main restricted universe multiverse\n" > /etc/apt/sources.list && \
+    printf "deb http://${APT_MIRROR}/debian bookworm main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian bookworm-updates main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian bookworm-backports main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian-security bookworm-security main contrib non-free non-free-firmware\n" > /etc/apt/sources.list && \
     echo "🔄 正在更新软件包列表..." && \
     apt-get update && \
     echo "📥 正在安装系统依赖..." && \
