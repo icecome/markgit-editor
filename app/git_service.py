@@ -62,8 +62,19 @@ def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[st
     """
     env = get_safe_git_env(cache_path, oauth_session_id)
     
-    # 确保 cwd 参数正确设置
-    kwargs['cwd'] = cache_path
+    # 对于 clone 命令，使用父目录或临时目录作为 cwd
+    if args[0:2] == ['git', 'clone']:
+        # 克隆命令不需要 cwd 存在
+        if 'cwd' not in kwargs:
+            # 使用父目录，如果不存在则使用临时目录
+            parent_dir = os.path.dirname(args[-1]) if args[-1].startswith('/') else cache_path
+            if os.path.exists(parent_dir):
+                kwargs['cwd'] = parent_dir
+            else:
+                kwargs['cwd'] = '/tmp'
+    else:
+        # 其他命令需要 cwd 存在
+        kwargs['cwd'] = cache_path
     
     # 如果没有设置 env，使用安全的环境变量
     if 'env' not in kwargs:
