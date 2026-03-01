@@ -8,18 +8,12 @@ LABEL maintainer="MarkGit Editor Team"
 LABEL version="1.2.0"
 LABEL description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
 
-# 安装系统依赖 - 智能选择镜像源（国内自动切换中科大源）
+# 安装系统依赖 - 使用国内镜像源加速（默认中科大源）
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    # 智能检测网络环境，选择最优镜像源
-    if curl -s --connect-timeout 3 -o /dev/null https://mirrors.ustc.edu.cn; then \
-        echo "检测到国内网络，使用中科大镜像源..." && \
-        sed -i 's|http://deb.debian.org/debian|https://mirrors.ustc.edu.cn/debian|g' /etc/apt/sources.list && \
-        sed -i 's|http://security.debian.org/debian-security|https://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list; \
-    else \
-        echo "使用官方 Debian 镜像源..." && \
-        sed -i 's|http://security.debian.org/debian-security|http://security.debian.org/debian-security|g' /etc/apt/sources.list; \
-    fi && \
+    # 替换为中科大镜像源
+    sed -i 's|http://deb.debian.org/debian|https://mirrors.ustc.edu.cn/debian|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.debian.org/debian-security|https://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list && \
     # 清理 apt 配置
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     # 更新并安装
@@ -35,18 +29,12 @@ WORKDIR /markgit-editor
 # 复制依赖文件
 COPY requirements.txt .
 
-# 安装 Python 依赖 - 智能选择镜像源（国内自动切换中科大源）
+# 安装 Python 依赖 - 使用国内镜像源加速（默认中科大源）
 RUN --mount=type=cache,target=/root/.cache/pip \
-    # 智能检测网络环境，选择最优 pip 镜像源
-    if curl -s --connect-timeout 3 -o /dev/null https://mirrors.ustc.edu.cn; then \
-        echo "检测到国内网络，使用中科大 pip 镜像源..." && \
-        pip install --no-cache-dir -r requirements.txt -i https://mirrors.ustc.edu.cn/pypi/simple \
-            --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-            --extra-index-url https://pypi.aliyun.com/simple; \
-    else \
-        echo "使用官方 PyPI 镜像源..." && \
-        pip install --no-cache-dir -r requirements.txt; \
-    fi
+    pip install --no-cache-dir -r requirements.txt \
+        -i https://mirrors.ustc.edu.cn/pypi/simple \
+        --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+        --extra-index-url https://pypi.aliyun.com/simple
 
 # 复制应用代码
 COPY . .
