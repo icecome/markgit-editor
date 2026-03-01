@@ -18,13 +18,8 @@ LABEL description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "📦 正在配置 APT 镜像源：${APT_MIRROR}" && \
-    cat > /etc/apt/sources.list <<EOF
-deb http://${APT_MIRROR}/ubuntu/ jammy main restricted universe multiverse
-deb http://${APT_MIRROR}/ubuntu/ jammy-updates main restricted universe multiverse
-deb http://${APT_MIRROR}/ubuntu/ jammy-backports main restricted universe multiverse
-deb http://${APT_MIRROR}/ubuntu/ jammy-security main restricted universe multiverse
-EOF
-    && echo "🔄 正在更新软件包列表..." && \
+    printf "deb http://${APT_MIRROR}/ubuntu/ jammy main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-updates main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-backports main restricted universe multiverse\ndeb http://${APT_MIRROR}/ubuntu/ jammy-security main restricted universe multiverse\n" > /etc/apt/sources.list && \
+    echo "🔄 正在更新软件包列表..." && \
     apt-get update && \
     echo "📥 正在安装系统依赖..." && \
     apt-get install -y --no-install-recommends \
