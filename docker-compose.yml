@@ -2,7 +2,11 @@ version: '3.8'
 
 services:
   markgit-editor:
-    build: .
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.ustc.edu.cn}
     container_name: markgit-editor
     ports:
       - "13131:13131"
