@@ -220,29 +220,58 @@ if (typeof Vue !== 'undefined') {
             },
             
             saveRepoConfig() {
-                // 不保存到 localStorage，只发送到后端
                 axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() })
                     .then(response => { 
-                        this.closePanel(); 
-                        this.showToast('配置已保存，请点击初始化按钮', 'success'); 
+                        this.showToast('仓库配置已保存', 'success'); 
                     })
                     .catch(error => { 
                         this.errorHandler(error); 
                     }); 
             },
+            async saveAllSettings() {
+                this.saving = true;
+                try {
+                    if (this.gitRepo) {
+                        await axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() });
+                    }
+                    localStorage.setItem('excludePatterns', this.excludePatterns);
+                    localStorage.setItem('simplePatterns', this.simplePatterns);
+                    localStorage.setItem('useWhitelist', this.useWhitelist);
+                    localStorage.setItem('whitelistExceptions', this.whitelistExceptions);
+                    
+                    this.showToast('设置已保存', 'success');
+                    this.closePanel();
+                    await this.getFiles();
+                }
+                catch (error) { 
+                    this.errorHandler(error); 
+                }
+                finally {
+                    this.saving = false;
+                }
+            },
             
             toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
             selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
             async commit() {
+                if (this.changes.length === 0) {
+                    this.showToast('没有需要提交的变更', 'info');
+                    return;
+                }
                 this.committing = true;
+                this.$nextTick(() => lucide.createIcons());
                 try { 
                     await axios.post('/api/commit', {}, { headers: this.getHeaders() }); 
-                    this.closePanel(); 
                     this.showToast('提交成功', 'success'); 
                     this.changes = []; 
+                    this.closePanel();
+                    await this.getFiles();
                 }
                 catch (error) { this.errorHandler(error); }
-                finally { this.committing = false; }
+                finally { 
+                    this.committing = false;
+                    this.$nextTick(() => lucide.createIcons());
+                }
             },
             async showChangesPanel() {
                 try { const response = await axios.get('/api/posts/changes', { headers: this.getHeaders() }); this.changes = response.data.data || []; this.panelTitle = '提交变更'; this.panelType = 'changes'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); }
@@ -425,6 +454,11 @@ if (typeof Vue !== 'undefined') {
                     this.files = response.data.data || [];
                     this.buildFileTree();
                     
+                    // 重新创建图标
+                    this.$nextTick(() => {
+                        lucide.createIcons();
+                    });
+                    
                     if (this.files.length === 0 && this.sessionId) {
                         await this.checkSessionStatus();
                         if (!this.repositoryInitialized) {
@@ -477,14 +511,6 @@ if (typeof Vue !== 'undefined') {
             confirmModal() { this.modalVisible = false; if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; } },
             cancelModal() { this.modalVisible = false; this.modalCallback = null; },
 
-            saveExcludePatterns() {
-                localStorage.setItem('excludePatterns', this.excludePatterns);
-                localStorage.setItem('simplePatterns', this.simplePatterns);
-                localStorage.setItem('useWhitelist', this.useWhitelist);
-                localStorage.setItem('whitelistExceptions', this.whitelistExceptions);
-                this.showToast('设置已保存，刷新页面后生效', 'success');
-                this.closePanel();
-            },
             getExcludePatterns() {
                 if (!this.excludePatterns) return [];
                 return this.excludePatterns.split('\n').map(p => p.trim()).filter(p => p.length > 0);

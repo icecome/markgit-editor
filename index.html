@@ -15,14 +15,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/main.css">
     <style>
-        /* 设置面板样式优化 */
         .settings-panel-content {
-            max-height: 70vh;
+            flex: 1;
             overflow-y: auto;
-            padding-right: 10px;
+            padding: 20px;
+            padding-bottom: 80px;
         }
         
-        /* 隐藏浏览器默认滚动条 */
         .settings-panel-content::-webkit-scrollbar {
             width: 6px;
         }
@@ -38,6 +37,20 @@
             background: var(--accent-color);
         }
         
+        .side-panel-footer {
+            position: sticky;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            z-index: 10;
+        }
+        
         .section-subtitle {
             font-size: 13px;
             font-weight: 600;
@@ -48,7 +61,6 @@
             gap: 6px;
         }
         
-        /* 紧凑模板按钮 */
         .pattern-templates {
             display: flex;
             flex-wrap: wrap;
@@ -61,7 +73,7 @@
             border-radius: 6px;
             padding: 6px 10px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
             display: flex;
             flex-direction: column;
             gap: 2px;
@@ -71,7 +83,6 @@
         .pattern-template:hover {
             border-color: var(--accent-color);
             background: rgba(59, 130, 246, 0.05);
-            transform: translateY(-1px);
         }
         .pattern-template code {
             font-family: 'Courier New', monospace;
@@ -374,17 +385,16 @@
                 </div>
             </div>
 
-            <div v-if="panelType === 'config'">
-                <div class="settings-panel-content">
-                    <div class="form-group">
-                        <label class="form-label">Git 仓库地址</label>
-                        <input type="text" class="form-input" v-model="gitRepo" placeholder="输入 Git 仓库 HTTPS 地址，如：https://github.com/username/repo.git">
-                        <p class="form-hint">使用 OAuth 登录后，系统将自动使用您的 GitHub 凭证进行认证</p>
-                    </div>
-                    <div class="form-actions">
-                        <button class="btn btn-secondary" @click="closePanel">取消</button>
-                        <button class="btn btn-primary" @click="saveRepoConfig">保存配置</button>
-                    </div>
+            <div v-if="panelType === 'config'" class="settings-panel-content">
+                <div class="section-title">
+                    <i data-lucide="git-branch" style="width: 16px; height: 16px;"></i>
+                    Git 仓库配置
+                </div>
+                <div class="form-group">
+                    <label class="form-label">仓库地址</label>
+                    <input type="text" class="form-input" v-model="gitRepo" placeholder="输入 Git 仓库 HTTPS 地址，如：https://github.com/username/repo.git">
+                    <p class="form-hint">使用 OAuth 登录后，系统将自动使用您的 GitHub 凭证进行认证</p>
+                </div>
                 
                 <div class="section-divider"></div>
                 
@@ -426,10 +436,45 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">排除后缀、文件名或目录（每行一个）</label>
-                    <textarea class="form-textarea" v-model="simplePatterns" rows="6" placeholder=".css&#10;.js&#10;.html&#10;dist/&#10;node_modules/"></textarea>
+                    <textarea class="form-textarea" v-model="simplePatterns" rows="4" placeholder=".css&#10;.js&#10;.html&#10;dist/&#10;node_modules/"></textarea>
                     <p class="form-hint">
                         示例：<code>.css</code> 排除 CSS 文件 | <code>test.txt</code> 排除特定文件 | <code>dist/</code> 排除目录
                     </p>
+                </div>
+                
+                <div class="pattern-templates">
+                    <div class="pattern-template" @click="addSimplePattern('.css')" title="排除 .css 文件">
+                        <code>.css</code>
+                        <span>CSS</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.js')" title="排除 .js 文件">
+                        <code>.js</code>
+                        <span>JS</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.html')" title="排除 .html 文件">
+                        <code>.html</code>
+                        <span>HTML</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.log')" title="排除 .log 文件">
+                        <code>.log</code>
+                        <span>日志</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('dist/')" title="排除 dist 目录">
+                        <code>dist/</code>
+                        <span>dist</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('node_modules/')" title="排除 node_modules 目录">
+                        <code>node_modules/</code>
+                        <span>node_modules</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.git/')" title="排除 .git 目录">
+                        <code>.git/</code>
+                        <span>.git</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('build/')" title="排除 build 目录">
+                        <code>build/</code>
+                        <span>build</span>
+                    </div>
                 </div>
                 
                 <div class="section-divider"></div>
@@ -440,81 +485,38 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">正则表达式排除（每行一个）</label>
-                    <textarea class="form-textarea" v-model="excludePatterns" rows="6" placeholder=".*\.css$&#10;.*\.html$&#10;^temp/"></textarea>
-                    <p class="form-hint">支持正则表达式，保存后刷新页面生效</p>
+                    <textarea class="form-textarea" v-model="excludePatterns" rows="4" placeholder=".*\.css$&#10;.*\.html$&#10;^temp/"></textarea>
+                    <p class="form-hint">支持正则表达式，保存后自动刷新生效</p>
                 </div>
                 
-                <div class="section-subtitle">
-                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i>
-                    简单模式模板（点击添加）
-                </div>
                 <div class="pattern-templates">
-                    <div class="pattern-template" @click="addSimplePattern('.css')" title="排除 .css 文件">
-                        <code>.css</code>
-                        <span>CSS 文件</span>
+                    <div class="pattern-template" @click="addPattern('.*\\.css$')" title="排除任意目录下的 .css 文件">
+                        <code>.*\.css$</code>
+                        <span>CSS</span>
                     </div>
-                    <div class="pattern-template" @click="addSimplePattern('.js')" title="排除 .js 文件">
-                        <code>.js</code>
-                        <span>JS 文件</span>
+                    <div class="pattern-template" @click="addPattern('.*\\.html$')" title="排除任意目录下的 .html 文件">
+                        <code>.*\.html$</code>
+                        <span>HTML</span>
                     </div>
-                    <div class="pattern-template" @click="addSimplePattern('.html')" title="排除 .html 文件">
-                        <code>.html</code>
-                        <span>HTML 文件</span>
+                    <div class="pattern-template" @click="addPattern('.*\\.js$')" title="排除任意目录下的 .js 文件">
+                        <code>.*\.js$</code>
+                        <span>JS</span>
                     </div>
-                    <div class="pattern-template" @click="addSimplePattern('.log')" title="排除 .log 文件">
-                        <code>.log</code>
-                        <span>日志文件</span>
+                    <div class="pattern-template" @click="addPattern('^\\.')" title="排除隐藏文件和目录">
+                        <code>^\.</code>
+                        <span>隐藏文件</span>
                     </div>
-                    <div class="pattern-template" @click="addSimplePattern('dist/')" title="排除 dist 目录">
-                        <code>dist/</code>
-                        <span>dist 目录</span>
+                    <div class="pattern-template" @click="addPattern('.*\\.log$')" title="排除日志文件">
+                        <code>.*\.log$</code>
+                        <span>日志</span>
                     </div>
-                    <div class="pattern-template" @click="addSimplePattern('node_modules/')" title="排除 node_modules 目录">
-                        <code>node_modules/</code>
-                        <span>node_modules</span>
-                    </div>
-                    <div class="pattern-template" @click="addSimplePattern('.git/')" title="排除 .git 目录">
-                        <code>.git/</code>
-                        <span>.git 目录</span>
-                    </div>
-                    <div class="pattern-template" @click="addSimplePattern('build/')" title="排除 build 目录">
-                        <code>build/</code>
-                        <span>build 目录</span>
+                    <div class="pattern-template" @click="addPattern('^dist/')" title="排除 dist 目录">
+                        <code>^dist/</code>
+                        <span>dist</span>
                     </div>
                 </div>
                 
                 <div class="section-divider"></div>
-                
-                <div class="section-subtitle">
-                    <i data-lucide="book-open" style="width: 14px; height: 14px;"></i>
-                    正则表达式模板（点击添加）
-                </div>
-                <div class="pattern-templates">
-                    <div class="pattern-template" @click="addPattern('.*\\.css$')" title="排除任意目录下的 .css 文件">
-                        <code>.*\.css$</code>
-                        <span>排除 CSS 文件</span>
-                    </div>
-                    <div class="pattern-template" @click="addPattern('.*\\.html$')" title="排除任意目录下的 .html 文件">
-                        <code>.*\.html$</code>
-                        <span>排除 HTML 文件</span>
-                    </div>
-                    <div class="pattern-template" @click="addPattern('.*\\.js$')" title="排除任意目录下的 .js 文件">
-                        <code>.*\.js$</code>
-                        <span>排除 JS 文件</span>
-                    </div>
-                    <div class="pattern-template" @click="addPattern('^\\.')" title="排除隐藏文件和目录">
-                        <code>^\.</code>
-                        <span>排除隐藏文件</span>
-                    </div>
-                    <div class="pattern-template" @click="addPattern('.*\\.log$')" title="排除日志文件">
-                        <code>.*\.log$</code>
-                        <span>排除日志文件</span>
-                    </div>
-                    <div class="pattern-template" @click="addPattern('^dist/')" title="排除 dist 目录">
-                        <code>^dist/</code>
-                        <span>排除 dist 目录</span>
-                    </div>
-                </div>
                 
                 <div class="section-subtitle">
                     <i data-lucide="circle-help" style="width: 14px; height: 14px;"></i>
@@ -538,11 +540,10 @@
                         <strong>白名单：</strong> 启用后只显示 .md, .txt, .toml, .yaml, .yml, .json 等文本/配置文件
                     </div>
                 </div>
-                <div class="form-actions">
-                    <button class="btn btn-secondary" @click="closePanel">取消</button>
-                    <button class="btn btn-primary" @click="saveExcludePatterns">保存设置</button>
-                </div>
-                </div> <!-- 结束 settings-panel-content -->
+            </div>
+            <div v-if="panelType === 'config'" class="side-panel-footer">
+                <button class="btn btn-secondary" @click="closePanel">取消</button>
+                <button class="btn btn-primary" @click="saveAllSettings">保存全部设置</button>
             </div>
 
             <div v-if="panelType === 'theme'">

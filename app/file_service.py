@@ -296,6 +296,7 @@ def get_files_recursive(directory: str,
         文件列表
     """
     files = []
+    valid_directories = set()
     try:
         for root, dirs, filenames in os.walk(directory):
             dirs[:] = [d for d in dirs if d not in HIDDEN_FOLDERS and not d.endswith('.egg-info')]
@@ -320,6 +321,10 @@ def get_files_recursive(directory: str,
                     "type": "file",
                     "size": os.path.getsize(os.path.join(root, filename))
                 })
+                parts = relative_path.replace('\\', '/').split('/')
+                for i in range(len(parts) - 1):
+                    valid_directories.add('/'.join(parts[:i+1]))
+            
             for dirname in dirs:
                 relative_path = os.path.relpath(os.path.join(root, dirname), directory)
                 if should_hide_path(relative_path):
@@ -333,10 +338,12 @@ def get_files_recursive(directory: str,
                     whitelist_exceptions
                 ):
                     continue
-                files.append({
-                    "path": relative_path.replace('\\', '/'),
-                    "type": "directory"
-                })
+                normalized_path = relative_path.replace('\\', '/')
+                if normalized_path in valid_directories:
+                    files.append({
+                        "path": normalized_path,
+                        "type": "directory"
+                    })
     except Exception as e:
         logger.error("获取文件列表失败：" + str(e))
     return files
