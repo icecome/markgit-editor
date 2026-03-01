@@ -39,6 +39,8 @@ class OAuthComponent {
      * 开始 OAuth 登录流程
      */
     async startLogin() {
+        console.log('OAuth startLogin called');
+        
         if (this.isRequestingDeviceCode) {
             console.log('Already requesting device code, please wait...');
             return;
@@ -54,8 +56,11 @@ class OAuthComponent {
         this.isRequestingDeviceCode = true;
         
         try {
+            console.log('Requesting device code from server...');
             const response = await axios.get('/api/auth/device-code');
             const deviceCode = response.data;
+            
+            console.log('Device code received:', deviceCode);
             
             this.currentDeviceCode = deviceCode;
             
@@ -94,48 +99,54 @@ class OAuthComponent {
         dialog.innerHTML = `
             <div class="modal" style="max-width: 450px;">
                 <div class="modal-header">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #333;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="oauth-icon">
                         <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
                     </svg>
                     <h3>GitHub 授权</h3>
                 </div>
                 <div class="modal-body">
                     ${deviceCode.qr_code ? `
-                        <div style="text-align: center; margin: 20px 0;">
-                            <img src="${deviceCode.qr_code}" alt="QR Code" style="max-width: 200px; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                            <p style="margin-top: 10px; color: #666;">使用手机扫描二维码授权</p>
+                        <div class="oauth-qr-container">
+                            <img src="${deviceCode.qr_code}" alt="QR Code" class="oauth-qr-code">
+                            <p class="oauth-qr-hint">使用手机扫描二维码授权</p>
                         </div>
                     ` : ''}
                     
-                    <div style="text-align: center; margin: 20px 0;">
-                        <p style="color: #666; margin-bottom: 10px;">或访问以下地址并输入用户码：</p>
+                    <div class="oauth-user-code-container">
+                        <p class="oauth-user-code-label">或访问以下地址并输入用户码：</p>
                         <a href="${deviceCode.verification_uri_complete}" 
                            target="_blank" 
-                           style="color: #0366d6; text-decoration: none; font-size: 14px; display: block; margin-bottom: 10px;">
+                           class="oauth-verification-link">
                             ${deviceCode.verification_uri}
                         </a>
-                        <div style="background: #f6f8fa; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 18px; letter-spacing: 2px; color: #24292e; display: inline-block;">
+                        <div class="oauth-user-code">
                             ${deviceCode.user_code}
                         </div>
                     </div>
                     
-                    <div style="text-align: center; color: #666;">
-                        <div class="spinner" style="display: inline-block; width: 20px; height: 20px; border: 2px solid #e1e4e8; border-top-color: #0366d6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                        <p style="margin-top: 10px;">等待授权...</p>
-                        <p style="font-size: 12px; color: #999;">授权后自动登录</p>
-                        <p style="font-size: 12px; color: #999; margin-top: 10px;">
+                    <div class="oauth-waiting-container">
+                        <div class="oauth-spinner"></div>
+                        <p class="oauth-waiting-text">等待授权...</p>
+                        <p class="oauth-hint">授权后自动登录</p>
+                        <p class="oauth-hint oauth-expiry">
                             设备码将在 ${Math.floor(deviceCode.expires_in / 60)} 分钟后过期
                         </p>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="oauth.closeDialog()">取消</button>
+                    <button class="btn btn-secondary" id="oauth-close-btn">取消</button>
                 </div>
             </div>
         `;
         
         document.body.appendChild(dialog);
         this.currentDialog = dialog;
+        
+        // 绑定关闭事件
+        const closeBtn = document.getElementById('oauth-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeDialog());
+        }
         
         // 添加样式
         this.addStyles();
@@ -163,7 +174,7 @@ class OAuthComponent {
         dialog.innerHTML = `
             <div class="modal" style="max-width: 400px;">
                 <div class="modal-header">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="oauth-icon oauth-icon-error">
                         <circle cx="12" cy="12" r="10"></circle>
                         <line x1="12" y1="8" x2="12" y2="12"></line>
                         <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -171,16 +182,22 @@ class OAuthComponent {
                     <h3>错误</h3>
                 </div>
                 <div class="modal-body">
-                    <p style="color: #24292e; font-size: 14px; line-height: 1.6;">${message}</p>
+                    <p class="oauth-error-message">${message}</p>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-primary" onclick="oauth.closeErrorDialog()">确定</button>
+                    <button class="btn btn-primary" id="oauth-error-close-btn">确定</button>
                 </div>
             </div>
         `;
         
         document.body.appendChild(dialog);
         this.currentErrorDialog = dialog;
+        
+        // 绑定关闭事件
+        const closeBtn = document.getElementById('oauth-error-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeErrorDialog());
+        }
     }
 
     /**
@@ -346,7 +363,7 @@ class OAuthComponent {
                          alt="${this.oauthUser.login}" 
                          style="width: 24px; height: 24px; border-radius: 50%; vertical-align: middle;">
                     <span style="font-size: 13px; vertical-align: middle;">${this.oauthUser.login}</span>
-                    <button class="btn btn-ghost btn-sm" onclick="oauth.logout()" title="登出" style="padding: 2px 6px;">
+                    <button id="oauth-logout-btn" class="btn btn-ghost btn-sm" title="登出" style="padding: 2px 6px;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                             <polyline points="16 17 21 12 16 7"></polyline>
@@ -355,16 +372,28 @@ class OAuthComponent {
                     </button>
                 </div>
             `;
+            
+            // 绑定登出事件
+            const logoutBtn = document.getElementById('oauth-logout-btn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => this.logout());
+            }
         } else {
             // 未登录状态 - 显示登录按钮
             container.innerHTML = `
-                <button class="btn btn-primary btn-sm" onclick="oauth.startLogin()" title="使用 GitHub 登录" style="margin-right: 10px; display: inline-flex; align-items: center; gap: 4px;">
+                <button id="oauth-login-btn" class="btn btn-primary btn-sm" title="使用 GitHub 登录" style="margin-right: 10px; display: inline-flex; align-items: center; gap: 4px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
                     </svg>
                     <span>登录</span>
                 </button>
             `;
+            
+            // 绑定登录事件
+            const loginBtn = document.getElementById('oauth-login-btn');
+            if (loginBtn) {
+                loginBtn.addEventListener('click', () => this.startLogin());
+            }
         }
         
         // 重新渲染图标
@@ -392,20 +421,22 @@ class OAuthComponent {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
+                background: rgba(0, 0, 0, 0.4);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 z-index: 9999;
+                backdrop-filter: blur(4px);
             }
             
             .modal {
-                background: white;
-                border-radius: 12px;
+                background: var(--bg-secondary, #ffffff);
+                border-radius: var(--radius-lg, 16px);
                 padding: 24px;
                 max-width: 450px;
                 width: 90%;
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                box-shadow: var(--shadow-lg, 0 10px 30px rgba(0, 0, 0, 0.1));
+                border: 1px solid var(--border-color, #e2e8f0);
             }
             
             .modal-header {
@@ -414,14 +445,26 @@ class OAuthComponent {
                 gap: 12px;
                 margin-bottom: 20px;
                 padding-bottom: 16px;
-                border-bottom: 1px solid #e1e4e8;
+                border-bottom: 1px solid var(--border-color, #e2e8f0);
             }
             
             .modal-header h3 {
                 margin: 0;
                 font-size: 18px;
-                font-weight: 600;
-                color: #24292e;
+                font-weight: 700;
+                color: var(--text-primary, #22252a);
+                letter-spacing: -0.02em;
+            }
+            
+            .oauth-icon {
+                width: 24px;
+                height: 24px;
+                color: var(--accent-color, #2196f3);
+                flex-shrink: 0;
+            }
+            
+            .oauth-icon-error {
+                color: var(--toast-error-color, #ef4444);
             }
             
             .modal-body {
@@ -431,53 +474,151 @@ class OAuthComponent {
             .modal-footer {
                 display: flex;
                 justify-content: flex-end;
-                gap: 8px;
+                gap: 12px;
                 padding-top: 16px;
-                border-top: 1px solid #e1e4e8;
+                border-top: 1px solid var(--border-color, #e2e8f0);
+                background: var(--bg-tertiary, #f1f5f9);
+                margin: 0 -24px -24px -24px;
+                padding: 20px 24px;
+                border-radius: 0 0 var(--radius-lg, 16px) var(--radius-lg, 16px);
+            }
+            
+            .oauth-qr-container {
+                text-align: center;
+                margin: 20px 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .oauth-qr-code {
+                max-width: 200px;
+                border: 1px solid var(--border-color, #e2e8f0);
+                padding: 10px;
+                border-radius: var(--radius-md, 12px);
+                background: var(--bg-secondary, #ffffff);
+                display: block;
+                margin: 0 auto;
+            }
+            
+            .oauth-qr-hint {
+                margin-top: 10px;
+                color: var(--text-secondary, #64748b);
+                font-size: 14px;
+            }
+            
+            .oauth-user-code-container {
+                text-align: center;
+                margin: 20px 0;
+            }
+            
+            .oauth-user-code-label {
+                color: var(--text-secondary, #64748b);
+                margin-bottom: 10px;
+                font-size: 14px;
+            }
+            
+            .oauth-verification-link {
+                color: var(--accent-color, #2196f3);
+                text-decoration: none;
+                font-size: 14px;
+                display: block;
+                margin-bottom: 10px;
+                font-weight: 600;
+            }
+            
+            .oauth-verification-link:hover {
+                text-decoration: underline;
+            }
+            
+            .oauth-user-code {
+                background: var(--bg-tertiary, #f1f5f9);
+                padding: 12px;
+                border-radius: var(--radius-md, 12px);
+                font-family: 'Courier New', monospace;
+                font-size: 18px;
+                letter-spacing: 2px;
+                color: var(--text-primary, #22252a);
+                display: inline-block;
+                border: 1.5px solid var(--border-color, #e2e8f0);
+                font-weight: 700;
+            }
+            
+            .oauth-waiting-container {
+                text-align: center;
+            }
+            
+            .oauth-spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border: 2px solid var(--border-color, #e2e8f0);
+                border-top-color: var(--accent-color, #2196f3);
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+            
+            .oauth-waiting-text {
+                margin-top: 10px;
+                color: var(--text-primary, #22252a);
+                font-size: 14px;
+                font-weight: 600;
+            }
+            
+            .oauth-hint {
+                font-size: 12px;
+                color: var(--text-tertiary, #94a3b8);
+                margin-top: 6px;
+            }
+            
+            .oauth-expiry {
+                margin-top: 10px;
+            }
+            
+            .oauth-error-message {
+                color: var(--text-secondary, #64748b);
+                font-size: 14px;
+                line-height: 1.6;
             }
             
             .btn {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: 500;
+                padding: 10px 20px;
+                border-radius: var(--radius-full, 9999px);
+                font-size: 13px;
+                font-weight: 600;
                 cursor: pointer;
-                border: 1px solid transparent;
-                transition: all 0.2s;
+                border: none;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             }
             
             .btn-secondary {
-                background: #f6f8fa;
-                border-color: rgba(27,31,35,.15);
-                color: #24292e;
+                background: var(--bg-secondary, #ffffff);
+                border: 1px solid var(--border-color, #e2e8f0);
+                color: var(--text-secondary, #64748b);
             }
             
             .btn-secondary:hover {
-                background: #f3f4f6;
-                border-color: rgba(27,31,35,.3);
+                background: var(--bg-tertiary, #f1f5f9);
+                border-color: var(--accent-color, #2196f3);
+                color: var(--accent-color, #2196f3);
+                transform: translateY(-1px);
             }
             
             .btn-primary {
-                background: #0366d6;
+                background: var(--accent-color, #2196f3);
                 color: white;
+                box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.1));
             }
             
             .btn-primary:hover {
-                background: #0256b9;
+                background: var(--accent-hover, #1976d2);
+                transform: translateY(-2px);
+                box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.1));
             }
             
             .btn-sm {
-                padding: 4px 12px;
-                font-size: 13px;
-            }
-            
-            .btn-ghost {
-                background: transparent;
-                color: #586069;
-            }
-            
-            .btn-ghost:hover {
-                background: rgba(27,31,35,.05);
+                padding: 6px 14px;
+                font-size: 12px;
             }
         `;
         
@@ -488,12 +629,7 @@ class OAuthComponent {
 // 创建全局实例
 const oauth = new OAuthComponent();
 
-// 自动初始化
-document.addEventListener('DOMContentLoaded', function() {
-    oauth.init();
-});
-
-// 如果 DOM 已经加载完成，立即初始化
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(() => oauth.init(), 100);
-}
+// 注意：不在这里自动初始化，由 main.js 中的 Vue 应用控制初始化时机
+// document.addEventListener('DOMContentLoaded', function() {
+//     oauth.init();
+// });

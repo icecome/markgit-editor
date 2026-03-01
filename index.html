@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MarkGit Editor</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%233b82f6;stop-opacity:1'/%3E%3Cstop offset='100%25' style='stop-color:%238b5cf6;stop-opacity:1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23grad)'/%3E%3Cg fill='white'%3E%3Cpath d='M12 8v16h8V8h-8z'/%3E%3Cpath d='M8 12h16v8H8z'/%3E%3C/g%3E%3C/svg%3E" type="image/svg+xml">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%232196f3;stop-opacity:1'/%3E%3Cstop offset='100%25' style='stop-color:%231976d2;stop-opacity:1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23grad)'/%3E%3Cg fill='white'%3E%3Ccircle cx='16' cy='8' r='3'/%3E%3Ccircle cx='10' cy='22' r='3'/%3E%3Ccircle cx='22' cy='22' r='3'/%3E%3Cpath d='M16 11v5a3 3 0 0 1-3 3H11' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3Cpath d='M16 16a3 3 0 0 0 3 3h2' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E" type="image/svg+xml">
     <script src="https://cdn.tailwindcss.com/3.4.1"></script>
     <script src="https://unpkg.com/lucide@0.344.0"></script>
     <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
@@ -19,7 +19,6 @@
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            padding-bottom: 80px;
         }
         
         .settings-panel-content::-webkit-scrollbar {
@@ -37,8 +36,8 @@
             background: var(--accent-color);
         }
         
-        .side-panel-footer {
-            position: sticky;
+        .side-panel-footer-fixed {
+            position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
@@ -48,6 +47,7 @@
             display: flex;
             gap: 8px;
             justify-content: flex-end;
+            flex-shrink: 0;
             z-index: 10;
         }
         
@@ -172,10 +172,6 @@
                 <span>MarkGit Editor</span>
             </div>
             <div class="nav-actions">
-                <button class="btn btn-primary" @click="showNewFilePanel()">
-                    <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
-                    <span>新建文件</span>
-                </button>
                 <button class="btn btn-success" @click="showChangesPanel()">
                     <i data-lucide="git-commit" style="width: 14px; height: 14px;"></i>
                     <span>提交</span>
@@ -188,7 +184,6 @@
                     <i data-lucide="git-pull-request" style="width: 14px; height: 14px;"></i>
                     <span>拉取</span>
                 </button>
-                <!-- OAuth 登录按钮容器 -->
                 <div id="oauth-container" style="display: inline-flex; align-items: center;"></div>
                 
                 <button class="btn btn-ghost" @click="showThemePanel()" title="主题设置">
@@ -202,21 +197,28 @@
     </nav>
 
     <div class="main-container">
-        <div class="sidebar-toggle" :class="{ 'collapsed': sidebarCollapsed }" @click="toggleSidebar">
-            <i data-lucide="chevron-left" style="width: 14px; height: 14px;" v-if="!sidebarCollapsed"></i>
-            <i data-lucide="chevron-right" style="width: 14px; height: 14px;" v-else></i>
-        </div>
-
         <div class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
+            <div class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开文件浏览器">
+                <i data-lucide="chevron-left" style="width: 14px; height: 14px; display: inline-block;" v-show="!sidebarCollapsed"></i>
+                <i data-lucide="chevron-right" style="width: 14px; height: 14px; display: inline-block;" v-show="sidebarCollapsed"></i>
+            </div>
             <div class="sidebar-header">
                 <div class="sidebar-title">文件浏览器</div>
-                <div class="sidebar-actions">
-                    <button class="btn btn-sm btn-secondary" @click="showNewFolderPanel()" title="在当前目录新建文件夹">
+                <div class="sidebar-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                    <button class="btn btn-sm btn-secondary" @click="showNewFolderPanel()" title="在当前目录新建文件夹" style="width: 100%; justify-content: center;">
                         <i data-lucide="folder-plus" style="width: 12px; height: 12px;"></i>
+                        <span>新建文件夹</span>
                     </button>
-                    <button class="btn btn-sm btn-secondary" @click="showNewFilePanel()" title="在当前目录新建文件">
-                        <i data-lucide="file-plus" style="width: 12px; height: 12px;"></i>
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-sm btn-secondary" @click="showNewFilePanel()" title="在当前目录新建文件" style="flex: 1 1 50%; justify-content: center; min-width: 0; padding: 4px 8px; line-height: 1.2;">
+                            <i data-lucide="file-plus" style="width: 14px; height: 12px;"></i>
+                            <span>新建文件</span>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @click="showUploadPanel()" title="上传文件" style="flex: 1 1 50%; justify-content: center; min-width: 0; padding: 4px 8px; line-height: 1.2;">
+                            <i data-lucide="upload" style="width: 14px; height: 12px;"></i>
+                            <span>上传</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -324,7 +326,7 @@
         </div>
     </div>
 
-    <div v-if="panelOpen" class="overlay" @click="closePanel"></div>
+    <div class="overlay" v-show="panelOpen" @click="closePanel"></div>
 
     <div class="side-panel" :class="{ 'open': panelOpen }">
         <div class="side-panel-header">
@@ -353,12 +355,29 @@
             <div v-if="panelType === 'newfolder'">
                 <div class="form-group">
                     <label class="form-label">文件夹名</label>
-                    <input type="text" class="form-input" v-model="newFolderName" placeholder="例如: my-folder" @keyup.enter="createFolder">
+                    <input type="text" class="form-input" v-model="newFolderName" placeholder="例如：my-folder" @keyup.enter="createFolder">
                     <p class="form-hint">将创建在：{{ currentDirectory || '根目录' }}</p>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>
                     <button class="btn btn-primary" @click="createFolder">创建文件夹</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'upload'">
+                <div class="form-group">
+                    <label class="form-label">选择要上传的文件</label>
+                    <input type="file" class="form-input" @change="handleFileSelect" accept="*/*">
+                    <p class="form-hint">将上传到：{{ currentDirectory || '根目录' }}</p>
+                </div>
+                <div class="form-group" v-if="selectedFileForUpload">
+                    <label class="form-label">文件名</label>
+                    <input type="text" class="form-input" v-model="uploadFileName" placeholder="输入新文件名">
+                    <p class="form-hint">原始文件名：{{ selectedFileForUpload.name }}</p>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="uploadFile" :disabled="!selectedFileForUpload">上传文件</button>
                 </div>
             </div>
 
@@ -385,7 +404,7 @@
                 </div>
             </div>
 
-            <div v-if="panelType === 'config'" class="settings-panel-content">
+            <div v-if="panelType === 'config'" class="settings-panel-content" style="padding-bottom: 80px;">
                 <div class="section-title">
                     <i data-lucide="git-branch" style="width: 16px; height: 16px;"></i>
                     Git 仓库配置
@@ -541,7 +560,7 @@
                     </div>
                 </div>
             </div>
-            <div v-if="panelType === 'config'" class="side-panel-footer">
+            <div v-if="panelType === 'config'" class="side-panel-footer-fixed">
                 <button class="btn btn-secondary" @click="closePanel">取消</button>
                 <button class="btn btn-primary" @click="saveAllSettings">保存全部设置</button>
             </div>
@@ -549,40 +568,42 @@
             <div v-if="panelType === 'theme'">
                 <div class="section-title">
                     <i data-lucide="palette" style="width: 16px; height: 16px;"></i>
-                    界面主题
+                    主题颜色
                 </div>
-                <div class="theme-selector">
-                    <div class="theme-option" :class="{ 'active': currentTheme === 'light' }" @click="setTheme('light')">
-                        <div class="theme-option-preview" style="background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%); border: 1px solid #e5e7eb;"></div>
-                        <div class="theme-option-name">浅色</div>
+                <div class="color-selector">
+                    <div class="color-option" :class="{ 'active': currentColor === 'blue' }" @click="setColor('blue')">
+                        <div class="color-option-preview" style="background: #2196f3;"></div>
+                        <div class="color-option-name">蓝色</div>
                     </div>
-                    <div class="theme-option" :class="{ 'active': currentTheme === 'dark' }" @click="setTheme('dark')">
-                        <div class="theme-option-preview" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);"></div>
-                        <div class="theme-option-name">深色</div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'green' }" @click="setColor('green')">
+                        <div class="color-option-preview" style="background: #30a14e;"></div>
+                        <div class="color-option-name">绿色</div>
                     </div>
-                    <div class="theme-option" :class="{ 'active': currentTheme === 'purple' }" @click="setTheme('purple')">
-                        <div class="theme-option-preview" style="background: linear-gradient(135deg, #1e1b2e 0%, #2d2640 100%);"></div>
-                        <div class="theme-option-name">紫色</div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'red' }" @click="setColor('red')">
+                        <div class="color-option-preview" style="background: #dc2626;"></div>
+                        <div class="color-option-name">红色</div>
                     </div>
-                    <div class="theme-option" :class="{ 'active': currentTheme === 'green' }" @click="setTheme('green')">
-                        <div class="theme-option-preview" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);"></div>
-                        <div class="theme-option-name">绿色</div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'gold' }" @click="setColor('gold')">
+                        <div class="color-option-preview" style="background: #d4af37;"></div>
+                        <div class="color-option-name">金色</div>
                     </div>
                 </div>
 
                 <div class="section-divider"></div>
 
                 <div class="section-title">
-                    <i data-lucide="code" style="width: 16px; height: 16px;"></i>
-                    代码高亮主题
+                    <i data-lucide="sun" style="width: 16px; height: 16px;"></i>
+                    显示模式
                 </div>
-                <div class="code-theme-selector">
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'github' }" @click="setCodeTheme('github')">GitHub</div>
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'atom-one-dark' }" @click="setCodeTheme('atom-one-dark')">Atom Dark</div>
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'atom-one-light' }" @click="setCodeTheme('atom-one-light')">Atom Light</div>
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'monokai' }" @click="setCodeTheme('monokai')">Monokai</div>
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'vs2015' }" @click="setCodeTheme('vs2015')">VS2015</div>
-                    <div class="code-theme-option" :class="{ 'active': codeTheme === 'wechat' }" @click="setCodeTheme('wechat')">微信</div>
+                <div class="mode-selector">
+                    <div class="mode-option" :class="{ 'active': currentMode === 'light' }" @click="setMode('light')">
+                        <i data-lucide="sun" style="width: 14px; height: 14px;"></i>
+                        浅色模式
+                    </div>
+                    <div class="mode-option" :class="{ 'active': currentMode === 'dark' }" @click="setMode('dark')">
+                        <i data-lucide="moon" style="width: 14px; height: 14px;"></i>
+                        深色模式
+                    </div>
                 </div>
 
                 <div class="section-divider"></div>
@@ -604,27 +625,6 @@
                         <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
                         分屏预览
                     </div>
-                </div>
-
-                <div class="section-divider"></div>
-
-                <div class="section-title">
-                    <i data-lucide="share-2" style="width: 16px; height: 16px;"></i>
-                    导出功能
-                </div>
-                <div class="export-buttons">
-                    <button class="export-btn wechat" @click="exportToWechat()" :disabled="!editingFilePath">
-                        <i data-lucide="message-circle" style="width: 14px; height: 14px;"></i>
-                        微信公众号
-                    </button>
-                    <button class="export-btn" @click="exportToHTML()" :disabled="!editingFilePath">
-                        <i data-lucide="file-code" style="width: 14px; height: 14px;"></i>
-                        导出 HTML
-                    </button>
-                    <button class="export-btn" @click="copyAsMarkdown()" :disabled="!editingFilePath">
-                        <i data-lucide="clipboard" style="width: 14px; height: 14px;"></i>
-                        复制 Markdown
-                    </button>
                 </div>
             </div>
 

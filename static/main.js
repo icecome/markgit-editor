@@ -1,11 +1,58 @@
-lucide.createIcons();
+const IconRenderer = {
+    timer: null,
+    pending: false,
+    renderedIcons: new Set(),  // 跟踪已渲染的图标
+    render() {
+        if (this.pending) return;
+        this.pending = true;
+        requestAnimationFrame(() => {
+            try {
+                if (typeof lucide !== 'undefined') {
+                    // 检查是否有新的图标需要渲染
+                    const elements = document.querySelectorAll('[data-lucide]');
+                    let hasNewIcons = false;
+                    
+                    elements.forEach(el => {
+                        const iconName = el.getAttribute('data-lucide');
+                        // 如果图标没有渲染过，或者元素被重新创建了（没有子元素）
+                        if (!this.renderedIcons.has(iconName) || !el.querySelector('svg')) {
+                            hasNewIcons = true;
+                        }
+                    });
+                    
+                    // 只有在新图标时才重新渲染
+                    if (hasNewIcons) {
+                        lucide.createIcons();
+                        // 更新已渲染图标集合
+                        this.renderedIcons.clear();
+                        elements.forEach(el => {
+                            this.renderedIcons.add(el.getAttribute('data-lucide'));
+                        });
+                    }
+                }
+            } catch (error) {
+                // 忽略图标渲染错误，通常是因为元素还未准备好
+                console.debug('Icon render error (ignored):', error.message);
+            }
+            this.pending = false;
+        });
+    },
+    renderDelayed(delay = 50) {
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.render(), delay);
+    },
+    clearCache() {
+        // 清空缓存，强制重新渲染所有图标
+        this.renderedIcons.clear();
+    }
+};
 
 const TreeNode = {
     name: 'TreeNode',
     props: {
         node: Object,
         level: Number,
-        expandedPaths: Object,
+        expandedPaths: Set,
         selectedPath: String,
         editingPath: String,
         currentDirectory: String
@@ -38,21 +85,21 @@ const TreeNode = {
         <div>
             <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu">
                 <span class="tree-toggle" v-if="node.type === 'directory'" @click.stop="toggle" :class="{ 'expanded': isExpanded }">
-                    <svg v-if="hasChildren" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    <i v-if="hasChildren" data-lucide="chevron-right" style="width: 16px; height: 16px;"></i>
                 </span>
                 <span class="tree-toggle" v-else></span>
                 <span class="tree-icon">
-                    <svg v-if="node.type === 'directory'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <i v-if="node.type === 'directory'" data-lucide="folder" style="width: 16px; height: 16px;"></i>
+                    <i v-else data-lucide="file-text" style="width: 16px; height: 16px;"></i>
                 </span>
                 <span class="tree-name">{{ node.name }}</span>
                 <span v-if="node.type === 'file' && node.size" class="file-size">{{ formatSize(node.size) }}</span>
                 <div class="tree-actions">
                     <span class="tree-action-btn" @click.stop="$emit('rename', node)" title="重命名">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                        <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
                     </span>
                     <span class="tree-action-btn delete" @click.stop="$emit('delete', node)" title="删除">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
                     </span>
                 </div>
             </div>
@@ -70,7 +117,7 @@ if (typeof Vue !== 'undefined') {
         components: { TreeNode },
         data() {
             return {
-                contentEditor: null, files: [], fileTree: [], expandedPaths: new Set(),
+                contentEditor: null, files: [], fileTree: [], expandedPathsList: [],
                 selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
                 loading: false, gitRepo: '', sidebarCollapsed: false, panelOpen: false,
                 panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
@@ -80,16 +127,18 @@ if (typeof Vue !== 'undefined') {
                 toastVisible: false, toastMessage: '', toastType: 'info', toastIcon: 'info',
                 modalVisible: false, modalTitle: '', modalMessage: '', modalType: 'info',
                 modalIcon: 'info', modalDetails: [], modalConfirmClass: 'btn-primary',
+                // 上传相关
+                selectedFileForUpload: null, uploadFileName: '',
                 modalCallback: null, modalFile_: null,
-                currentTheme: localStorage.getItem('theme') || 'light',
-                codeTheme: localStorage.getItem('codeTheme') || 'github',
+                currentColor: localStorage.getItem('themeColor') || 'blue',
+                currentMode: localStorage.getItem('themeMode') || 'light',
                 editorMode: localStorage.getItem('editorMode') || 'wysiwyg',
                 hasUnsavedChanges: false,
                 saving: false,
                 committing: false,
                 lastSavedContent: '',
-                sessionId: sessionStorage.getItem('sessionId') || '',  // 使用 sessionStorage
-                userId: localStorage.getItem('userId') || '',  // userId 持久化
+                sessionId: sessionStorage.getItem('sessionId') || '',
+                userId: localStorage.getItem('userId') || '',
                 repositoryInitialized: false,
                 hasRemote: false,
                 excludePatterns: localStorage.getItem('excludePatterns') || '',
@@ -99,8 +148,17 @@ if (typeof Vue !== 'undefined') {
             };
         },
         computed: {
-            fileCount() { return this.files.filter(f => f.type === 'file').length; },
-            folderCount() { return this.files.filter(f => f.type === 'directory').length; }
+            expandedPaths() { return new Set(this.expandedPathsList); },
+            fileStats() {
+                let files = 0, folders = 0;
+                for (const f of this.files) {
+                    if (f.type === 'file') files++;
+                    else folders++;
+                }
+                return { files, folders };
+            },
+            fileCount() { return this.fileStats.files; },
+            folderCount() { return this.fileStats.folders; }
         },
         methods: {
             getHeaders() {
@@ -251,7 +309,17 @@ if (typeof Vue !== 'undefined') {
                 }
             },
             
-            toggleSidebar() { this.sidebarCollapsed = !this.sidebarCollapsed; },
+            toggleSidebar() { 
+                console.log('toggleSidebar clicked, current state:', this.sidebarCollapsed);
+                this.sidebarCollapsed = !this.sidebarCollapsed;
+                console.log('toggleSidebar new state:', this.sidebarCollapsed);
+                // 等待 DOM 更新后再渲染图标
+                this.$nextTick(() => {
+                    if (typeof IconRenderer !== 'undefined') {
+                        IconRenderer.render();
+                    }
+                });
+            },
             selectDirectory(path) { this.currentDirectory = path; this.hideContextMenu(); },
             async commit() {
                 if (this.changes.length === 0) {
@@ -259,7 +327,7 @@ if (typeof Vue !== 'undefined') {
                     return;
                 }
                 this.committing = true;
-                this.$nextTick(() => lucide.createIcons());
+                IconRenderer.render();
                 try { 
                     await axios.post('/api/commit', {}, { headers: this.getHeaders() }); 
                     this.showToast('提交成功', 'success'); 
@@ -270,19 +338,88 @@ if (typeof Vue !== 'undefined') {
                 catch (error) { this.errorHandler(error); }
                 finally { 
                     this.committing = false;
-                    this.$nextTick(() => lucide.createIcons());
+                    IconRenderer.render();
                 }
             },
             async showChangesPanel() {
-                try { const response = await axios.get('/api/posts/changes', { headers: this.getHeaders() }); this.changes = response.data.data || []; this.panelTitle = '提交变更'; this.panelType = 'changes'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); }
+                try { 
+                    const response = await axios.get('/api/posts/changes', { headers: this.getHeaders() }); 
+                    this.changes = response.data.data || []; 
+                    this.panelTitle = '提交变更'; 
+                    this.panelType = 'changes'; 
+                    this.panelOpen = true; 
+                    this.$nextTick(() => IconRenderer.render());
+                }
                 catch (error) { this.errorHandler(error); }
+            },
+            handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    this.selectedFileForUpload = file;
+                    this.uploadFileName = file.name;  // 默认使用原文件名
+                }
+            },
+            async uploadFile() {
+                if (!this.selectedFileForUpload) {
+                    this.showToast('请选择文件', 'error');
+                    return;
+                }
+                
+                const fileName = this.uploadFileName || this.selectedFileForUpload.name;
+                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + fileName : fileName;
+                
+                const formData = new FormData();
+                formData.append('file', this.selectedFileForUpload);
+                formData.append('path', fullPath);
+                
+                try {
+                    await axios.post('/api/file/upload', formData, {
+                        headers: {
+                            ...this.getHeaders(),
+                            'Content-Type': 'multipart/form-data'
+                        }
+                    });
+                    this.closePanel();
+                    await this.getFiles();
+                    await this.getChanges();
+                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) {
+                        this.expandedPathsList.push(this.currentDirectory);
+                    }
+                    this.showToast('文件上传成功', 'success');
+                }
+                catch (error) {
+                    this.errorHandler(error);
+                }
+            },
+            async getChanges() {
+                try { 
+                    const response = await axios.get('/api/posts/changes', { headers: this.getHeaders() }); 
+                    this.changes = response.data.data || [];
+                }
+                catch (error) { 
+                    console.debug('获取变更失败：', error.message);
+                    // 静默失败，不影响用户体验
+                }
             },
             async saveFile() {
                 if (!this.editingFilePath || !this.contentEditor || this.saving) return;
                 this.saving = true;
-                try { await axios.post('/api/file/save', { path: this.editingFilePath, content: this.contentEditor.getValue() }, { headers: this.getHeaders() }); this.showToast('保存成功', 'success'); this.hasUnsavedChanges = false; this.lastSavedContent = this.contentEditor.getValue(); }
+                // 保存状态变化时清空图标缓存
+                IconRenderer.clearCache();
+                try { 
+                    await axios.post('/api/file/save', { path: this.editingFilePath, content: this.contentEditor.getValue() }, { headers: this.getHeaders() }); 
+                    this.showToast('保存成功', 'success'); 
+                    this.hasUnsavedChanges = false; 
+                    this.lastSavedContent = this.contentEditor.getValue();
+                    // 保存成功后自动获取变更列表
+                    await this.getChanges();
+                }
                 catch (error) { this.errorHandler(error); }
-                finally { this.saving = false; }
+                finally { 
+                    this.saving = false;
+                    // 保存完成后再渲染一次图标
+                    IconRenderer.render();
+                }
             },
             async selectFile(file) {
                 if (this.hasUnsavedChanges) { await this.saveFile(); }
@@ -291,9 +428,25 @@ if (typeof Vue !== 'undefined') {
                 catch (error) { this.errorHandler(error); }
                 finally { this.loading = false; }
             },
-            toggleExpand(path) { if (this.expandedPaths.has(path)) this.expandedPaths.delete(path); else this.expandedPaths.add(path); this.expandedPaths = new Set(this.expandedPaths); },
+            toggleExpand(path) {
+                const index = this.expandedPathsList.indexOf(path);
+                if (index > -1) {
+                    this.expandedPathsList.splice(index, 1);
+                } else {
+                    this.expandedPathsList.push(path);
+                }
+            },
             async initWorkspace() {
-                if (!this.gitRepo) { this.showToast('请先配置 Git 仓库地址', 'error'); return; }
+                if (!this.sessionId) {
+                    this.showToast('请先进行 OAuth 登录', 'error');
+                    return;
+                }
+                
+                if (!this.gitRepo) { 
+                    this.showToast('请先配置 Git 仓库地址', 'error'); 
+                    this.showConfigPanel();
+                    return; 
+                }
                 
                 await this.checkSessionStatus();
                 
@@ -335,46 +488,75 @@ if (typeof Vue !== 'undefined') {
                 });
             },
             async pullRepo() {
-                try { await axios.post('/api/pull', {}, { headers: this.getHeaders() }); await this.getFiles(); this.showToast('拉取成功', 'success'); }
-                catch (error) { this.errorHandler(error); }
+                if (!this.sessionId) {
+                    this.showToast('请先进行 OAuth 登录', 'error');
+                    return;
+                }
+                
+                if (!this.repositoryInitialized) {
+                    this.showToast('请先初始化仓库', 'error');
+                    return;
+                }
+                
+                try { 
+                    await axios.post('/api/pull', {}, { headers: this.getHeaders() }); 
+                    await this.getFiles(); 
+                    this.showToast('拉取成功', 'success'); 
+                }
+                catch (error) { 
+                    this.errorHandler(error); 
+                }
             },
-            showNewFilePanel() { this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showNewFilePanelAt(path) { this.currentDirectory = path; this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showNewFolderPanel() { this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showNewFolderPanelAt(path) { this.currentDirectory = path; this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showConfigPanel() { this.panelTitle = '使用说明'; this.panelType = 'config'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            showThemePanel() { this.panelTitle = '主题与设置'; this.panelType = 'theme'; this.panelOpen = true; this.$nextTick(() => lucide.createIcons()); },
-            setTheme(theme) {
-                this.currentTheme = theme; localStorage.setItem('theme', theme);
-                if (theme === 'light') { document.documentElement.removeAttribute('data-theme'); } else { document.documentElement.setAttribute('data-theme', theme); }
-                if (this.contentEditor) { const content = this.contentEditor.getValue(); this.createEditor(this.editingFilePath, content); }
-                this.$nextTick(() => lucide.createIcons());
+            showNewFilePanel() { this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; },
+            showNewFilePanelAt(path) { this.currentDirectory = path; this.newFileName = ''; this.newFileContent = ''; this.panelTitle = '新建文件'; this.panelType = 'newfile'; this.panelOpen = true; this.hideContextMenu(); },
+            showNewFolderPanel() { this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; },
+            showNewFolderPanelAt(path) { this.currentDirectory = path; this.newFolderName = ''; this.panelTitle = '新建文件夹'; this.panelType = 'newfolder'; this.panelOpen = true; this.hideContextMenu(); },
+            showUploadPanel() { 
+                this.selectedFileForUpload = null; 
+                this.uploadFileName = ''; 
+                this.panelTitle = '上传文件'; 
+                this.panelType = 'upload'; 
+                this.panelOpen = true; 
             },
-            setCodeTheme(theme) {
-                this.codeTheme = theme; localStorage.setItem('codeTheme', theme);
-                if (this.contentEditor) { const content = this.contentEditor.getValue(); this.createEditor(this.editingFilePath, content); }
+            showConfigPanel() { 
+                console.log('showConfigPanel called');
+                this.panelTitle = '使用说明'; 
+                this.panelType = 'config'; 
+                this.panelOpen = true; 
+            },
+            showThemePanel() { 
+                console.log('showThemePanel called');
+                this.panelTitle = '主题与设置'; 
+                this.panelType = 'theme'; 
+                this.panelOpen = true; 
+            },
+            setColor(color) {
+                this.currentColor = color;
+                localStorage.setItem('themeColor', color);
+                document.documentElement.setAttribute('data-color', color);
+                this.$nextTick(() => IconRenderer.render());
+            },
+            setMode(mode) {
+                this.currentMode = mode;
+                localStorage.setItem('themeMode', mode);
+                if (mode === 'light') {
+                    document.documentElement.removeAttribute('data-mode');
+                } else {
+                    document.documentElement.setAttribute('data-mode', 'dark');
+                }
+                if (this.contentEditor) {
+                    const vditorTheme = mode === 'dark' ? 'dark' : 'classic';
+                    // 使用正确的 Vditor API 切换主题
+                    this.contentEditor.setTheme(vditorTheme, {
+                        theme: vditorTheme,
+                        previewTheme: vditorTheme
+                    });
+                }
+                this.$nextTick(() => IconRenderer.render());
             },
             setEditorMode(mode) {
                 this.editorMode = mode; localStorage.setItem('editorMode', mode);
                 if (this.contentEditor) { const content = this.contentEditor.getValue(); this.createEditor(this.editingFilePath, content); }
-            },
-            exportToWechat() { if (!this.contentEditor) return; const html = this.contentEditor.getHTML(); const wechatStyle = this.applyWechatStyle(html); this.copyToClipboard(wechatStyle, '微信公众号格式已复制到剪贴板'); },
-            exportToHTML() {
-                if (!this.contentEditor) return;
-                const html = this.contentEditor.getHTML(); const fullHtml = this.wrapFullHTML(html);
-                const blob = new Blob([fullHtml], { type: 'text/html' }); const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = (this.editingFilePath.split('/').pop().replace(/\.[^/.]+$/, '') || 'document') + '.html'; a.click();
-                URL.revokeObjectURL(url); this.showToast('HTML文件已导出', 'success');
-            },
-            copyAsMarkdown() { if (!this.contentEditor) return; const markdown = this.contentEditor.getValue(); this.copyToClipboard(markdown, 'Markdown内容已复制到剪贴板'); },
-            applyWechatStyle(html) {
-                const sanitizedHtml = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-                const wechatStyles = `<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; padding: 20px; }h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }p { margin-bottom: 16px; }code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(27,31,35,.05); border-radius: 3px; font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace; }pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; }pre code { background-color: transparent; padding: 0; }blockquote { padding: 0 1em; color: #6a737d; border-left: 0.25em solid #dfe2e5; margin: 0 0 16px 0; }table { border-spacing: 0; border-collapse: collapse; margin-bottom: 16px; }table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }table th { font-weight: 600; background-color: #f6f8fa; }table tr:nth-child(2n) { background-color: #f6f8fa; }img { max-width: 100%; box-sizing: content-box; background-color: #fff; }a { color: #0366d6; text-decoration: none; }a:hover { text-decoration: underline; }</style>`;
-                return wechatStyles + sanitizedHtml;
-            },
-            wrapFullHTML(html) {
-                const sanitizedHtml = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
-                return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${this.escapeHtml(this.editingFilePath.split('/').pop())}</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${this.codeTheme}.min.css"><style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: .3em; }p { margin-bottom: 16px; }code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(27,31,35,.05); border-radius: 3px; font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace; }pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; }pre code { background-color: transparent; padding: 0; }blockquote { padding: 0 1em; color: #6a737d; border-left: 0.25em solid #dfe2e5; margin: 0 0 16px 0; }table { border-spacing: 0; border-collapse: collapse; margin-bottom: 16px; width: 100%; }table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }table th { font-weight: 600; background-color: #f6f8fa; }table tr:nth-child(2n) { background-color: #f6f8fa; }img { max-width: 100%; }a { color: #0366d6; text-decoration: none; }a:hover { text-decoration: underline; }</style></head><body>${sanitizedHtml}</body></html>`;
             },
             escapeHtml(text) {
                 const div = document.createElement('div');
@@ -386,30 +568,68 @@ if (typeof Vue !== 'undefined') {
                     const textarea = document.createElement('textarea'); textarea.value = text; document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); document.body.removeChild(textarea); this.showToast(message, 'success');
                 });
             },
-            showRenamePanel(file) { this.renameFile_ = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            showMovePanel(file) { this.moveFile_ = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => lucide.createIcons()); },
-            closePanel() { this.panelOpen = false; this.panelType = ''; },
+            showRenamePanel(file) { this.renameFile_ = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
+            showMovePanel(file) { this.moveFile_ = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
+            closePanel() { 
+                this.panelOpen = false; 
+                // 等待动画完成后清空面板类型
+                setTimeout(() => {
+                    this.panelType = '';
+                }, 300);
+            },
             async createFile() {
                 if (!this.newFileName) { this.showToast('请输入文件名', 'error'); return; }
                 const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFileName : this.newFileName;
-                try { await axios.post('/api/file/create', { path: fullPath, content: this.newFileContent }, { headers: this.getHeaders() }); this.closePanel(); await this.getFiles(); if (this.currentDirectory) { this.expandedPaths.add(this.currentDirectory); this.expandedPaths = new Set(this.expandedPaths); } this.showToast('文件创建成功', 'success'); }
+                try { 
+                    await axios.post('/api/file/create', { path: fullPath, content: this.newFileContent }, { headers: this.getHeaders() }); 
+                    this.closePanel(); 
+                    await this.getFiles(); 
+                    await this.getChanges();  // 获取变更列表
+                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) { 
+                        this.expandedPathsList.push(this.currentDirectory); 
+                    } 
+                    this.showToast('文件创建成功', 'success'); 
+                }
                 catch (error) { this.errorHandler(error); }
             },
             async createFolder() {
                 if (!this.newFolderName) { this.showToast('请输入文件夹名', 'error'); return; }
                 const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFolderName : this.newFolderName;
-                try { await axios.post('/api/folder/create', { path: fullPath }, { headers: this.getHeaders() }); this.closePanel(); await this.getFiles(); if (this.currentDirectory) { this.expandedPaths.add(this.currentDirectory); this.expandedPaths = new Set(this.expandedPaths); } this.showToast('文件夹创建成功', 'success'); }
+                try { 
+                    await axios.post('/api/folder/create', { path: fullPath }, { headers: this.getHeaders() }); 
+                    this.closePanel(); 
+                    await this.getFiles(); 
+                    await this.getChanges();  // 获取变更列表
+                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) { 
+                        this.expandedPathsList.push(this.currentDirectory); 
+                    } 
+                    this.showToast('文件夹创建成功', 'success'); 
+                }
                 catch (error) { this.errorHandler(error); }
             },
             async renameFile() {
                 if (!this.renameNewName) { this.showToast('请输入新名称', 'error'); return; }
                 const oldPath = this.renameFile_.path; const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')); const newPath = parentPath ? parentPath + '/' + this.renameNewName : this.renameNewName;
-                try { await axios.post('/api/file/rename', { oldPath: oldPath, newPath: newPath }, { headers: this.getHeaders() }); this.closePanel(); await this.getFiles(); if (this.editingFilePath === oldPath) this.editingFilePath = newPath; this.showToast('重命名成功', 'success'); }
+                try { 
+                    await axios.post('/api/file/rename', { oldPath: oldPath, newPath: newPath }, { headers: this.getHeaders() }); 
+                    this.closePanel(); 
+                    await this.getFiles(); 
+                    await this.getChanges();  // 获取变更列表
+                    if (this.editingFilePath === oldPath) this.editingFilePath = newPath; 
+                    this.showToast('重命名成功', 'success'); 
+                }
                 catch (error) { this.errorHandler(error); }
             },
             async moveFile() {
                 if (!this.moveDestPath) { this.showToast('请输入目标路径', 'error'); return; }
-                try { await axios.post('/api/file/move', { sourcePath: this.moveSourcePath, destPath: this.moveDestPath }, { headers: this.getHeaders() }); this.closePanel(); await this.getFiles(); if (this.editingFilePath === this.moveSourcePath) this.editingFilePath = this.moveDestPath; this.showToast('移动成功', 'success'); }
+                try { 
+                    await axios.post('/api/file/move', { sourcePath: this.moveSourcePath, destPath: this.moveDestPath }, { headers: this.getHeaders() }); 
+                    this.closePanel(); 
+                    await this.getFiles(); 
+                    await this.getChanges();  // 获取变更列表
+                    if (this.editingFilePath === this.moveSourcePath) this.editingFilePath = this.moveDestPath; 
+                    this.showToast('移动成功', 'success'); 
+                }
                 catch (error) { this.errorHandler(error); }
             },
             async deleteFile(file) {
@@ -418,8 +638,17 @@ if (typeof Vue !== 'undefined') {
                     callback: async () => {
                         try {
                             await axios.delete('/api/file/delete', { params: { file_path: file.path }, headers: this.getHeaders() });
-                            if (this.editingFilePath === file.path) { if (this.contentEditor) { this.contentEditor.destroy(); this.contentEditor = null; } this.editingFilePath = ''; this.hasUnsavedChanges = false; }
-                            await this.getFiles(); this.showToast('删除成功', 'success');
+                            if (this.editingFilePath === file.path) { 
+                                if (this.contentEditor) { 
+                                    this.contentEditor.destroy(); 
+                                    this.contentEditor = null; 
+                                } 
+                                this.editingFilePath = ''; 
+                                this.hasUnsavedChanges = false; 
+                            }
+                            await this.getFiles(); 
+                            await this.getChanges();  // 获取变更列表
+                            this.showToast('删除成功', 'success');
                         } catch (error) { this.errorHandler(error); }
                     }
                 });
@@ -454,10 +683,7 @@ if (typeof Vue !== 'undefined') {
                     this.files = response.data.data || [];
                     this.buildFileTree();
                     
-                    // 重新创建图标
-                    this.$nextTick(() => {
-                        lucide.createIcons();
-                    });
+                    IconRenderer.render();
                     
                     if (this.files.length === 0 && this.sessionId) {
                         await this.checkSessionStatus();
@@ -491,23 +717,40 @@ if (typeof Vue !== 'undefined') {
             },
             createEditor(filePath, rawContent) {
                 if (this.contentEditor) this.contentEditor.destroy();
-                const vditorTheme = this.currentTheme === 'dark' || this.currentTheme === 'purple' ? 'dark' : 'classic';
+                const vditorTheme = this.currentMode === 'dark' ? 'dark' : 'classic';
                 const self = this;
                 this.contentEditor = new Vditor('vditor', {
-                    height: '100%', toolbarConfig: { pin: true }, cache: { enable: false },
-                    after: () => { self.contentEditor.setValue(rawContent); self.lastSavedContent = rawContent; },
-                    preview: { markdown: { linkBase: filePath.substring(0, filePath.lastIndexOf('/')) }, theme: { current: vditorTheme } },
-                    hljs: { style: this.codeTheme, lineNumber: true },
-                    input: () => { self.hasUnsavedChanges = true; if (self.autoSaveTimer) clearTimeout(self.autoSaveTimer); self.autoSaveTimer = setTimeout(() => { self.saveFile(); }, 3000); },
-                    mode: this.editorMode, theme: vditorTheme
+                    height: '100%', 
+                    toolbarConfig: { pin: true }, 
+                    cache: { enable: false },
+                    theme: vditorTheme,
+                    preview: { 
+                        markdown: { 
+                            linkBase: filePath.substring(0, filePath.lastIndexOf('/')) 
+                        }, 
+                        theme: { 
+                            current: vditorTheme 
+                        } 
+                    },
+                    hljs: { lineNumber: true },
+                    input: () => { 
+                        self.hasUnsavedChanges = true; 
+                        if (self.autoSaveTimer) clearTimeout(self.autoSaveTimer); 
+                        self.autoSaveTimer = setTimeout(() => { self.saveFile(); }, 3000); 
+                    },
+                    mode: this.editorMode,
+                    after: () => { 
+                        self.contentEditor.setValue(rawContent); 
+                        self.lastSavedContent = rawContent; 
+                    }
                 });
             },
             errorHandler(error) {
                 console.error(error);
                 const message = error.response?.data?.detail || '操作失败，请重试'; this.showToast(message, 'error');
             },
-            showToast(message, type = 'info') { this.toastMessage = message; this.toastType = type; this.toastIcon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'; this.toastVisible = true; this.$nextTick(() => lucide.createIcons()); setTimeout(() => { this.toastVisible = false; }, 3000); },
-            showModal(options) { this.modalTitle = options.title || '确认'; this.modalMessage = options.message || ''; this.modalType = options.type || 'info'; this.modalIcon = options.icon || 'info'; this.modalDetails = options.details || []; this.modalConfirmClass = options.confirmClass || 'btn-primary'; this.modalCallback = options.callback || null; this.modalVisible = true; this.$nextTick(() => lucide.createIcons()); },
+            showToast(message, type = 'info') { this.toastMessage = message; this.toastType = type; this.toastIcon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'; this.toastVisible = true; this.$nextTick(() => IconRenderer.render()); setTimeout(() => { this.toastVisible = false; }, 3000); },
+            showModal(options) { this.modalTitle = options.title || '确认'; this.modalMessage = options.message || ''; this.modalType = options.type || 'info'; this.modalIcon = options.icon || 'info'; this.modalDetails = options.details || []; this.modalConfirmClass = options.confirmClass || 'btn-primary'; this.modalCallback = options.callback || null; this.modalVisible = true; this.$nextTick(() => IconRenderer.render()); },
             confirmModal() { this.modalVisible = false; if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; } },
             cancelModal() { this.modalVisible = false; this.modalCallback = null; },
 
@@ -543,7 +786,7 @@ if (typeof Vue !== 'undefined') {
                 }
                 this.showToast('已添加简单规则：' + pattern, 'info');
             },
-            showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => lucide.createIcons()); },
+            showContextMenu(event, file) { this.contextMenuVisible = true; this.contextMenuX = event.clientX; this.contextMenuY = event.clientY; this.contextMenuFile = file; this.$nextTick(() => IconRenderer.render()); },
             hideContextMenu() { this.contextMenuVisible = false; this.contextMenuFile = null; },
             openFile() { if (this.contextMenuFile && this.contextMenuFile.type === 'file') this.selectFile(this.contextMenuFile); this.hideContextMenu(); },
             newFileAtContext() { if (this.contextMenuFile) this.showNewFilePanelAt(this.contextMenuFile.path); },
@@ -553,17 +796,23 @@ if (typeof Vue !== 'undefined') {
             deleteContext() { if (this.contextMenuFile) this.deleteFile(this.contextMenuFile); }
         },
         async mounted() {
-            if (this.currentTheme && this.currentTheme !== 'light') { document.documentElement.setAttribute('data-theme', this.currentTheme); }
+            document.documentElement.setAttribute('data-color', this.currentColor);
+            if (this.currentMode === 'dark') {
+                document.documentElement.setAttribute('data-mode', 'dark');
+            }
             this._clickHandler = () => { this.hideContextMenu(); };
             document.addEventListener('click', this._clickHandler);
             await this.$nextTick();
-            lucide.createIcons();
+            IconRenderer.render();
             await this.createOrUseSession();
             await this.initApp();
             
-            // 初始化 OAuth 组件（如果可用）
+            // 初始化 OAuth 组件
             if (typeof oauth !== 'undefined') {
+                console.log('Initializing OAuth component...');
                 oauth.init();
+            } else {
+                console.error('OAuth component not found!');
             }
         },
         beforeUnmount() {
