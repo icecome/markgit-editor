@@ -362,27 +362,48 @@ def validate_file_path(file_path: str, base_path: Optional[str] = None) -> str:
         HTTPException: 路径不合法时抛出
     """
     from fastapi import HTTPException
+    import re
     
     if not file_path:
-        raise HTTPException(status_code=400, detail="File path cannot be empty")
+        raise HTTPException(status_code=400, detail="文件路径不能为空")
+    
+    # 检查路径长度
+    if len(file_path) > 500:
+        raise HTTPException(status_code=400, detail="路径过长 (最大 500 个字符)")
     
     if base_path is None:
         base_path = BLOG_CACHE_PATH
     
     decoded_path = unquote(file_path)
     for check_path in [file_path, decoded_path]:
-        if ".." in check_path or check_path.startswith("/"):
-            raise HTTPException(status_code=400, detail="Invalid file path")
-        if "\\" in check_path and os.name != 'nt':
-            raise HTTPException(status_code=400, detail="Invalid file path")
-        if "%2e%2e" in check_path.lower() or "%2f" in check_path.lower():
-            raise HTTPException(status_code=400, detail="Invalid file path")
+        # 检查路径遍历攻击
+        if ".." in check_path:
+            raise HTTPException(status_code=400, detail="非法路径：不允许使用 ..")
+        # 检查绝对路径
+        if check_path.startswith("/") or (len(check_path) > 1 and check_path[1] == ":"):
+            raise HTTPException(status_code=400, detail="非法路径：只能使用相对路径")
+        # 检查非法字符
+        if re.search(r'[<>:"|？*]', check_path):
+            raise HTTPException(status_code=400, detail="文件名包含非法字符")
+        # 检查 URL 编码的路径遍历
+        if "%2e%2e" in check_path.lower() or "%2f" in check_path.lower() or "%5c" in check_path.lower():
+            raise HTTPException(status_code=400, detail="非法路径编码")
+        # 检查 Windows 保留名称
+        filename = os.path.basename(check_path).split('.')[0].upper()
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']
+        if filename in reserved_names:
+            raise HTTPException(status_code=400, detail="文件名使用了系统保留名称")
+    
+    # 检查是否以点开头 (隐藏文件)
+    if os.path.basename(decoded_path).startswith('.'):
+        raise HTTPException(status_code=400, detail="文件名不能以点开头")
     
     full_path = os.path.normpath(os.path.join(base_path, decoded_path))
     abs_base_path = os.path.abspath(base_path)
     abs_full_path = os.path.abspath(full_path)
     
-    if not abs_full_path.startswith(abs_base_path):
-        raise HTTPException(status_code=400, detail="Invalid file path")
+    # 确保最终路径在基础路径内
+    if not abs_full_path.startswith(abs_base_path + os.sep) and abs_full_path != abs_base_path:
+        raise HTTPException(status_code=400, detail="非法路径：路径超出允许范围")
     
     return abs_full_path

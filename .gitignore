@@ -1,30 +1,70 @@
-.idea/
-.vscode/
-.vs/
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.eggs/
-*.egg
-
-blog_cache/
-blog_cache_backup/
-blog_cache_remote_temp/
-
-.history/
-*.log
-*.pid
-
+# 环境配置文件 - 包含敏感信息
 .env
 .env.local
 .env.*.local
 
-.sessions/
+# 日志文件
+*.log
+logs/
 
-node_modules/
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
+# 历史备份文件 (重要！)
+.history/
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
 .DS_Store
 Thumbs.db
 
-审查报告/
+# 会话数据 (敏感)
+blog_cache/
+.sessions/
+blog_cache/.sessions/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.bak
+
+# 测试覆盖率
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
+.tox/
+
+# 文档构建
+docs/_build/
+
+# Node (如果有)
+node_modules/
+npm-debug.log
+yarn-error.log

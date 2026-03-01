@@ -103,29 +103,72 @@ async def get_access_token(device_code: str = Body(..., embed=True)):
     错误:
     HTTP 400 {"error": "authorization_pending"}
     """
-    # 轮询令牌
-    access_token, error = await github_oauth.poll_access_token(device_code)
-    
-    if error == "authorization_pending":
-        # 用户尚未授权，继续轮询
-        # 获取当前设备码的轮询间隔
-        interval = github_oauth.device_codes.get(device_code, type('obj', (object,), {'interval': 5})()).interval
-        raise HTTPException(status_code=400, detail="authorization_pending", headers={"X-Interval": str(interval)})
-    
-    elif error == "access_denied":
-        # 用户拒绝授权
-        raise HTTPException(status_code=400, detail="access_denied")
-    
-    elif error == "expired_token":
-        # 设备码过期
-        raise HTTPException(status_code=400, detail="expired_token")
-    
-    elif error:
-        # 其他错误
-        raise HTTPException(status_code=400, detail=error)
-    
-    if not access_token:
-        raise HTTPException(status_code=500, detail="获取令牌失败")
+    try:
+        # 轮询令牌
+        access_token, error = await github_oauth.poll_access_token(device_code)
+        
+        if error == "authorization_pending":
+            # 用户尚未授权，继续轮询
+            # 获取当前设备码的轮询间隔
+            device_code_obj = github_oauth.device_codes.get(device_code)
+            interval = device_code_obj.interval if device_code_obj else 5
+            # 返回标准 OAuth 2.0 错误格式
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "authorization_pending",
+                    "error_description": "用户尚未授权，请继续等待",
+                    "interval": interval
+                }
+            )
+        
+        elif error == "access_denied":
+            # 用户拒绝授权
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "access_denied",
+                    "error_description": "用户拒绝了授权请求"
+                }
+            )
+        
+        elif error == "expired_token":
+            # 设备码过期
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "expired_token",
+                    "error_description": "设备码已过期，请重新获取"
+                }
+            )
+        
+        elif error == "slow_down":
+            # GitHub 要求降低轮询频率
+            device_code_obj = github_oauth.device_codes.get(device_code)
+            new_interval = device_code_obj.interval if device_code_obj else 10
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "slow_down",
+                    "error_description": "请求过于频繁，请降低轮询频率",
+                    "interval": new_interval
+                }
+            )
+        
+        elif error:
+            # 其他错误
+            raise HTTPException(status_code=400, detail=error)
+        
+        if not access_token:
+            raise HTTPException(status_code=500, detail="获取令牌失败")
+            
+    except HTTPException:
+        # 重新抛出 HTTP 异常
+        raise
+    except Exception as e:
+        # 处理其他意外错误
+        logger.error(f"获取 access_token 时发生错误：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取令牌失败：{str(e)}")
     
     # 生成会话 ID
     session_id = str(uuid.uuid4())

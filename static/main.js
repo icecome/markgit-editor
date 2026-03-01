@@ -1,7 +1,20 @@
+/**
+ * 图标渲染器 - 优化性能，避免重复渲染
+ * 
+ * 工作原理:
+ * 1. 使用 Set 跟踪已渲染的图标
+ * 2. 只渲染新的或重新创建的图标
+ * 3. 使用 requestAnimationFrame 优化渲染时机
+ * 4. 使用防抖避免频繁调用
+ */
 const IconRenderer = {
     timer: null,
     pending: false,
     renderedIcons: new Set(),  // 跟踪已渲染的图标
+    
+    /**
+     * 渲染图标 - 只在需要时渲染
+     */
     render() {
         if (this.pending) return;
         this.pending = true;
@@ -37,12 +50,20 @@ const IconRenderer = {
             this.pending = false;
         });
     },
-    renderDelayed(delay = 50) {
+    
+    /**
+     * 延迟渲染 - 防抖版本
+     * @param {number} delay - 延迟时间 (毫秒)
+     */
+    renderDelayed(delay = 100) {
         if (this.timer) clearTimeout(this.timer);
         this.timer = setTimeout(() => this.render(), delay);
     },
+    
+    /**
+     * 清空缓存 - 强制重新渲染所有图标
+     */
     clearCache() {
-        // 清空缓存，强制重新渲染所有图标
         this.renderedIcons.clear();
     }
 };
@@ -121,7 +142,7 @@ if (typeof Vue !== 'undefined') {
                 selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
                 loading: false, gitRepo: '', sidebarCollapsed: false, panelOpen: false,
                 panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
-                newFolderName: '', renameFile_: null, renameNewName: '', moveFile_: null,
+                newFolderName: '', renameTargetFile: null, renameNewName: '', moveTargetFile: null,
                 moveSourcePath: '', moveDestPath: '', contextMenuVisible: false,
                 contextMenuX: 0, contextMenuY: 0, contextMenuFile: null,
                 toastVisible: false, toastMessage: '', toastType: 'info', toastIcon: 'info',
@@ -129,7 +150,7 @@ if (typeof Vue !== 'undefined') {
                 modalIcon: 'info', modalDetails: [], modalConfirmClass: 'btn-primary',
                 // 上传相关
                 selectedFileForUpload: null, uploadFileName: '',
-                modalCallback: null, modalFile_: null,
+                modalCallback: null, modalTargetFile: null,
                 currentColor: localStorage.getItem('themeColor') || 'blue',
                 currentMode: localStorage.getItem('themeMode') || 'light',
                 editorMode: localStorage.getItem('editorMode') || 'wysiwyg',
@@ -328,14 +349,24 @@ if (typeof Vue !== 'undefined') {
                 }
                 this.committing = true;
                 IconRenderer.render();
-                try { 
-                    await axios.post('/api/commit', {}, { headers: this.getHeaders() }); 
-                    this.showToast('提交成功', 'success'); 
+                try {
+                    const response = await axios.post('/api/commit', {}, { headers: this.getHeaders() });
+                    
+                    // 检查提交是否成功
+                    if (!response.data || response.data.success === false) {
+                        throw new Error(response.data?.message || '提交失败');
+                    }
+                    
+                    this.showToast(response.data?.message || '提交成功', 'success'); 
                     this.changes = []; 
                     this.closePanel();
                     await this.getFiles();
                 }
-                catch (error) { this.errorHandler(error); }
+                catch (error) { 
+                    console.error('提交失败:', error);
+                    const errorMsg = error.response?.data?.message || error.message || '提交失败，请重试';
+                    this.showToast(errorMsg, 'error');
+                }
                 finally { 
                     this.committing = false;
                     IconRenderer.render();
@@ -366,7 +397,12 @@ if (typeof Vue !== 'undefined') {
                 }
                 
                 const fileName = this.uploadFileName || this.selectedFileForUpload.name;
-                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + fileName : fileName;
+                const fullPath = this.buildFullPath(this.currentDirectory, fileName);
+                
+                // 验证文件名和路径
+                if (!this.validateFileName(fileName) || !this.validatePath(fullPath)) {
+                    return;
+                }
                 
                 const formData = new FormData();
                 formData.append('file', this.selectedFileForUpload);
@@ -379,12 +415,7 @@ if (typeof Vue !== 'undefined') {
                             'Content-Type': 'multipart/form-data'
                         }
                     });
-                    this.closePanel();
-                    await this.getFiles();
-                    await this.getChanges();
-                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) {
-                        this.expandedPathsList.push(this.currentDirectory);
-                    }
+                    await this.refreshAfterOperation();
                     this.showToast('文件上传成功', 'success');
                 }
                 catch (error) {
@@ -407,14 +438,26 @@ if (typeof Vue !== 'undefined') {
                 // 保存状态变化时清空图标缓存
                 IconRenderer.clearCache();
                 try { 
-                    await axios.post('/api/file/save', { path: this.editingFilePath, content: this.contentEditor.getValue() }, { headers: this.getHeaders() }); 
-                    this.showToast('保存成功', 'success'); 
+                    const response = await axios.post('/api/file/save', { path: this.editingFilePath, content: this.contentEditor.getValue() }, { headers: this.getHeaders() });
+                    
+                    // 检查响应是否成功
+                    if (!response.data || response.data.success === false) {
+                        throw new Error(response.data?.message || '保存失败，服务器返回错误');
+                    }
+                    
+                    this.showToast(response.data?.message || '保存成功', 'success'); 
                     this.hasUnsavedChanges = false; 
                     this.lastSavedContent = this.contentEditor.getValue();
                     // 保存成功后自动获取变更列表
                     await this.getChanges();
                 }
-                catch (error) { this.errorHandler(error); }
+                catch (error) { 
+                    console.error('保存文件失败:', error);
+                    const errorMsg = error.response?.data?.message || error.message || '保存失败，请检查网络连接';
+                    this.showToast(errorMsg, 'error');
+                    // 恢复未保存状态，让用户知道需要重新保存
+                    this.hasUnsavedChanges = true;
+                }
                 finally { 
                     this.saving = false;
                     // 保存完成后再渲染一次图标
@@ -536,6 +579,10 @@ if (typeof Vue !== 'undefined') {
                 document.documentElement.setAttribute('data-color', color);
                 this.$nextTick(() => IconRenderer.render());
             },
+            /**
+             * 设置显示模式 (浅色/深色)
+             * @param {string} mode - 'light' 或 'dark'
+             */
             setMode(mode) {
                 this.currentMode = mode;
                 localStorage.setItem('themeMode', mode);
@@ -568,8 +615,8 @@ if (typeof Vue !== 'undefined') {
                     const textarea = document.createElement('textarea'); textarea.value = text; document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); document.body.removeChild(textarea); this.showToast(message, 'success');
                 });
             },
-            showRenamePanel(file) { this.renameFile_ = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
-            showMovePanel(file) { this.moveFile_ = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
+            showRenamePanel(file) { this.renameTargetFile = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
+            showMovePanel(file) { this.moveTargetFile = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
             closePanel() { 
                 this.panelOpen = false; 
                 // 等待动画完成后清空面板类型
@@ -577,44 +624,161 @@ if (typeof Vue !== 'undefined') {
                     this.panelType = '';
                 }, 300);
             },
+            /**
+             * 验证文件名是否合法
+             * @param {string} name - 要验证的文件名
+             * @returns {boolean} - 是否合法
+             */
+            validateFileName(name) {
+                if (!name || name.trim() === '') {
+                    this.showToast('文件名不能为空', 'error');
+                    return false;
+                }
+                
+                // 检查长度
+                if (name.length > 255) {
+                    this.showToast('文件名过长 (最大 255 个字符)', 'error');
+                    return false;
+                }
+                
+                // 检查非法字符
+                const invalidChars = /[<>:"\/\\|？*]/;
+                if (invalidChars.test(name)) {
+                    this.showToast('文件名包含非法字符 (< > : " / \\ | ? *)', 'error');
+                    return false;
+                }
+                
+                // 检查保留名称
+                const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
+                const upperName = name.toUpperCase().split('.')[0];
+                if (reservedNames.includes(upperName)) {
+                    this.showToast('文件名使用了系统保留名称', 'error');
+                    return false;
+                }
+                
+                // 检查是否以点开头 (隐藏文件)
+                if (name.startsWith('.')) {
+                    this.showToast('文件名不能以点开头', 'error');
+                    return false;
+                }
+                
+                return true;
+            },
+
+            /**
+             * 验证路径是否合法
+             * @param {string} path - 要验证的路径
+             * @returns {boolean} - 是否合法
+             */
+            validatePath(path) {
+                if (!path || path.trim() === '') {
+                    this.showToast('路径不能为空', 'error');
+                    return false;
+                }
+                
+                // 检查路径遍历攻击
+                if (path.includes('..')) {
+                    this.showToast('非法路径', 'error');
+                    return false;
+                }
+                
+                // 检查绝对路径
+                if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:/.test(path)) {
+                    this.showToast('只能使用相对路径', 'error');
+                    return false;
+                }
+                
+                // 检查总长度
+                if (path.length > 500) {
+                    this.showToast('路径过长', 'error');
+                    return false;
+                }
+                
+                return true;
+            },
+
+            /**
+             * 构建完整文件路径
+             * @param {string} directory - 目录路径
+             * @param {string} fileName - 文件名
+             * @returns {string} 完整路径
+             */
+            buildFullPath(directory, fileName) {
+                return directory ? `${directory}/${fileName}` : fileName;
+            },
+
+            /**
+             * 操作后刷新文件列表和变更
+             * 用于文件创建、删除、重命名、移动等操作后
+             */
+            async refreshAfterOperation() {
+                this.closePanel();
+                await this.getFiles();
+                await this.getChanges();
+                if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) {
+                    this.expandedPathsList.push(this.currentDirectory);
+                }
+            },
+
             async createFile() {
                 if (!this.newFileName) { this.showToast('请输入文件名', 'error'); return; }
-                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFileName : this.newFileName;
+                
+                // 验证文件名
+                if (!this.validateFileName(this.newFileName)) {
+                    return;
+                }
+                
+                const fullPath = this.buildFullPath(this.currentDirectory, this.newFileName);
+                
+                // 验证完整路径
+                if (!this.validatePath(fullPath)) {
+                    return;
+                }
+                
                 try { 
                     await axios.post('/api/file/create', { path: fullPath, content: this.newFileContent }, { headers: this.getHeaders() }); 
-                    this.closePanel(); 
-                    await this.getFiles(); 
-                    await this.getChanges();  // 获取变更列表
-                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) { 
-                        this.expandedPathsList.push(this.currentDirectory); 
-                    } 
+                    await this.refreshAfterOperation();
                     this.showToast('文件创建成功', 'success'); 
                 }
                 catch (error) { this.errorHandler(error); }
             },
             async createFolder() {
                 if (!this.newFolderName) { this.showToast('请输入文件夹名', 'error'); return; }
-                const fullPath = this.currentDirectory ? this.currentDirectory + '/' + this.newFolderName : this.newFolderName;
+                
+                // 验证文件夹名
+                if (!this.validateFileName(this.newFolderName)) {
+                    return;
+                }
+                
+                const fullPath = this.buildFullPath(this.currentDirectory, this.newFolderName);
+                
+                // 验证完整路径
+                if (!this.validatePath(fullPath)) {
+                    return;
+                }
+                
                 try { 
                     await axios.post('/api/folder/create', { path: fullPath }, { headers: this.getHeaders() }); 
-                    this.closePanel(); 
-                    await this.getFiles(); 
-                    await this.getChanges();  // 获取变更列表
-                    if (this.currentDirectory && !this.expandedPathsList.includes(this.currentDirectory)) { 
-                        this.expandedPathsList.push(this.currentDirectory); 
-                    } 
+                    await this.refreshAfterOperation();
                     this.showToast('文件夹创建成功', 'success'); 
                 }
                 catch (error) { this.errorHandler(error); }
             },
             async renameFile() {
                 if (!this.renameNewName) { this.showToast('请输入新名称', 'error'); return; }
-                const oldPath = this.renameFile_.path; const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')); const newPath = parentPath ? parentPath + '/' + this.renameNewName : this.renameNewName;
+                
+                // 验证新文件名
+                if (!this.validateFileName(this.renameNewName)) {
+                    return;
+                }
+                
+                const oldPath = this.renameTargetFile.path; 
+                const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/')); 
+                const newPath = this.buildFullPath(parentPath, this.renameNewName);
+                
                 try { 
                     await axios.post('/api/file/rename', { oldPath: oldPath, newPath: newPath }, { headers: this.getHeaders() }); 
-                    this.closePanel(); 
-                    await this.getFiles(); 
-                    await this.getChanges();  // 获取变更列表
+                    await this.refreshAfterOperation();
                     if (this.editingFilePath === oldPath) this.editingFilePath = newPath; 
                     this.showToast('重命名成功', 'success'); 
                 }
@@ -622,11 +786,15 @@ if (typeof Vue !== 'undefined') {
             },
             async moveFile() {
                 if (!this.moveDestPath) { this.showToast('请输入目标路径', 'error'); return; }
+                
+                // 验证目标路径
+                if (!this.validatePath(this.moveDestPath)) {
+                    return;
+                }
+                
                 try { 
                     await axios.post('/api/file/move', { sourcePath: this.moveSourcePath, destPath: this.moveDestPath }, { headers: this.getHeaders() }); 
-                    this.closePanel(); 
-                    await this.getFiles(); 
-                    await this.getChanges();  // 获取变更列表
+                    await this.refreshAfterOperation();
                     if (this.editingFilePath === this.moveSourcePath) this.editingFilePath = this.moveDestPath; 
                     this.showToast('移动成功', 'success'); 
                 }
@@ -646,8 +814,7 @@ if (typeof Vue !== 'undefined') {
                                 this.editingFilePath = ''; 
                                 this.hasUnsavedChanges = false; 
                             }
-                            await this.getFiles(); 
-                            await this.getChanges();  // 获取变更列表
+                            await this.refreshAfterOperation();
                             this.showToast('删除成功', 'success');
                         } catch (error) { this.errorHandler(error); }
                     }
@@ -749,7 +916,21 @@ if (typeof Vue !== 'undefined') {
                 console.error(error);
                 const message = error.response?.data?.detail || '操作失败，请重试'; this.showToast(message, 'error');
             },
+            /**
+             * 显示 Toast 提示
+             * @param {string} message - 提示信息
+             * @param {string} type - 提示类型：'success' | 'error' | 'info' | 'warning'
+             */
             showToast(message, type = 'info') { this.toastMessage = message; this.toastType = type; this.toastIcon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'; this.toastVisible = true; this.$nextTick(() => IconRenderer.render()); setTimeout(() => { this.toastVisible = false; }, 3000); },
+            /**
+             * 显示模态对话框
+             * @param {Object} options - 对话框配置
+             * @param {string} options.title - 标题
+             * @param {string} options.message - 消息内容
+             * @param {string} options.type - 类型：'info' | 'danger' | 'warning'
+             * @param {string} options.icon - 图标名称
+             * @param {Function} options.callback - 确认回调
+             */
             showModal(options) { this.modalTitle = options.title || '确认'; this.modalMessage = options.message || ''; this.modalType = options.type || 'info'; this.modalIcon = options.icon || 'info'; this.modalDetails = options.details || []; this.modalConfirmClass = options.confirmClass || 'btn-primary'; this.modalCallback = options.callback || null; this.modalVisible = true; this.$nextTick(() => IconRenderer.render()); },
             confirmModal() { this.modalVisible = false; if (this.modalCallback) { this.modalCallback(); this.modalCallback = null; } },
             cancelModal() { this.modalVisible = false; this.modalCallback = null; },

@@ -89,6 +89,16 @@ class OAuthComponent {
     }
 
     /**
+     * HTML 转义函数 - 防止 XSS 攻击
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
      * 显示授权对话框（原生 DOM 实现）
      */
     showAuthDialog(deviceCode) {
@@ -96,6 +106,13 @@ class OAuthComponent {
         const dialog = document.createElement('div');
         dialog.id = 'oauth-dialog';
         dialog.className = 'modal-overlay';
+        
+        // 使用转义后的用户数据，防止 XSS
+        const safeUserCode = this.escapeHtml(deviceCode.user_code);
+        const safeVerificationUri = this.escapeHtml(deviceCode.verification_uri);
+        const safeVerificationUriComplete = this.escapeHtml(deviceCode.verification_uri_complete);
+        const expiresInMinutes = Math.floor(deviceCode.expires_in / 60);
+        
         dialog.innerHTML = `
             <div class="modal" style="max-width: 450px;">
                 <div class="modal-header">
@@ -107,20 +124,21 @@ class OAuthComponent {
                 <div class="modal-body">
                     ${deviceCode.qr_code ? `
                         <div class="oauth-qr-container">
-                            <img src="${deviceCode.qr_code}" alt="QR Code" class="oauth-qr-code">
+                            <img src="${this.escapeHtml(deviceCode.qr_code)}" alt="QR Code" class="oauth-qr-code">
                             <p class="oauth-qr-hint">使用手机扫描二维码授权</p>
                         </div>
                     ` : ''}
                     
                     <div class="oauth-user-code-container">
                         <p class="oauth-user-code-label">或访问以下地址并输入用户码：</p>
-                        <a href="${deviceCode.verification_uri_complete}" 
+                        <a href="${safeVerificationUriComplete}" 
                            target="_blank" 
-                           class="oauth-verification-link">
-                            ${deviceCode.verification_uri}
+                           class="oauth-verification-link"
+                           rel="noopener noreferrer">
+                            ${safeVerificationUri}
                         </a>
                         <div class="oauth-user-code">
-                            ${deviceCode.user_code}
+                            ${safeUserCode}
                         </div>
                     </div>
                     
@@ -129,7 +147,7 @@ class OAuthComponent {
                         <p class="oauth-waiting-text">等待授权...</p>
                         <p class="oauth-hint">授权后自动登录</p>
                         <p class="oauth-hint oauth-expiry">
-                            设备码将在 ${Math.floor(deviceCode.expires_in / 60)} 分钟后过期
+                            设备码将在 ${expiresInMinutes} 分钟后过期
                         </p>
                     </div>
                 </div>
@@ -214,6 +232,7 @@ class OAuthComponent {
      * 开始轮询令牌
      */
     startPolling(deviceCode) {
+        // 先清理旧的定时器，防止内存泄漏
         this.stopPolling();
         
         // 使用 GitHub 返回的间隔时间，默认 5 秒
@@ -222,62 +241,66 @@ class OAuthComponent {
         this.pollTimer = setInterval(async () => {
             try {
                 const response = await axios.post('/api/auth/token', {
-                    device_code: deviceCode.device_code
+                    device_code: deviceCode.device_code,
+                    grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+                }, {
+                    headers: { 
+                        'Content-Type': 'application/json'
+                    }
                 });
                 
-                // 授权成功
-                this.stopPolling();
+                console.log('OAuth 令牌获取成功:', response.data);
+                
+                // 保存令牌和会话 ID
+                this.oauthToken = response.data.access_token;
                 this.oauthSessionId = response.data.session_id;
                 sessionStorage.setItem('oauthSessionId', this.oauthSessionId);
-                this.oauthAuthenticated = true;
                 
-                // 关闭对话框
-                this.closeDialog();
+                // 停止轮询
+                this.stopPolling();
                 
-                // 获取用户信息
+                // 更新 UI 和状态
                 await this.checkStatus();
                 
-                // 触发回调
+                // 关闭对话框
+                if (this.currentDialog) {
+                    this.closeDialog();
+                }
+                
+                // 触发登录成功事件
                 if (this.onLoginSuccess) {
-                    this.onLoginSuccess(this.oauthUser);
+                    this.onLoginSuccess();
                 }
                 
             } catch (error) {
-                if (error.response?.status === 400) {
-                    const errorMsg = error.response.data.detail || error.response.data;
+                if (error.response && error.response.data) {
+                    const errorData = error.response.data;
                     
-                    if (errorMsg === 'authorization_pending') {
-                        // 继续等待，检查是否有新的间隔时间
-                        const newInterval = error.response.headers['x-interval'];
-                        if (newInterval) {
-                            console.log(`服务器要求新的轮询间隔：${newInterval}秒`);
-                            this.stopPolling();
-                            pollInterval = parseInt(newInterval) * 1000;
-                            this.startPolling(deviceCode);
-                        }
-                        return;
-                    } else if (errorMsg === 'access_denied') {
-                        this.stopPolling();
-                        this.closeDialog();
-                        alert('授权已被拒绝');
-                    } else if (errorMsg === 'expired_token') {
-                        this.stopPolling();
-                        this.closeDialog();
-                        alert('授权码已过期，请重试');
-                    } else if (errorMsg === 'slow_down') {
-                        // GitHub 要求降低轮询频率
-                        const newInterval = error.response.data.interval || 15;
-                        console.log(`GitHub 要求降低轮询频率：${newInterval}秒`);
+                    if (errorData.error === 'authorization_pending' || errorData.detail === 'authorization_pending') {
+                        // 继续等待 - 这是正常状态，不需要日志
+                        // console.debug('等待用户授权...');
+                    } else if (errorData.error === 'slow_down' || errorData.detail === 'slow_down') {
+                        const newInterval = ((errorData.interval || errorData.detail_interval || 10)) * 1000;
+                        console.log(`GitHub 要求降低轮询频率：${newInterval/1000}秒`);
                         // 重置轮询间隔
                         this.stopPolling();
-                        pollInterval = newInterval * 1000;
+                        this.pollInterval = newInterval;
                         this.startPolling(deviceCode);
+                    } else if (errorData.error === 'expired_token' || errorData.error === 'access_denied' || 
+                               errorData.detail === 'expired_token' || errorData.detail === 'access_denied') {
+                        console.error('OAuth 授权失败:', errorData.error || errorData.detail);
+                        this.stopPolling();
+                        this.showErrorDialog(`授权失败：${errorData.error_description || errorData.detail || errorData.error}`);
+                    } else {
+                        // 其他错误，记录详细日志
+                        console.warn('OAuth 轮询收到未知错误:', errorData);
                     }
                 } else {
-                    console.error('OAuth 轮询失败:', error);
+                    // 网络错误或其他非 HTTP 错误
+                    console.debug('OAuth 轮询网络错误，继续重试:', error.message);
                 }
             }
-        }, pollInterval);
+        }, this.pollInterval);
     }
 
     /**
@@ -288,6 +311,15 @@ class OAuthComponent {
             clearInterval(this.pollTimer);
             this.pollTimer = null;
         }
+    }
+
+    /**
+     * 清理 OAuth 组件资源
+     */
+    cleanup() {
+        this.stopPolling();
+        this.currentDeviceCode = null;
+        this.pollInterval = 5000;  // 重置为默认值
     }
 
     /**
