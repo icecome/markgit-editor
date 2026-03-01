@@ -302,6 +302,13 @@ def git_add(cache_path: str = None, oauth_session_id: Optional[str] = None):
     try:
         if not cache_path:
             cache_path = get_current_cache_path()
+        
+        # 检查是否是 Git 仓库
+        git_dir = os.path.join(cache_path, '.git')
+        if not os.path.exists(git_dir):
+            logger.warning(f"目录不是 Git 仓库，跳过 git add：{cache_path}")
+            return
+        
         logger.info(f"Git add 操作目录：{cache_path}")
         result = safe_git_run(['git', 'add', '-A'], cache_path, oauth_session_id, capture_output=True, check=True)
         logger.info(f"Git add 成功，输出：{result.stdout.decode('utf-8', errors='ignore')[:200]}")

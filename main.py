@@ -21,8 +21,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
             origin = request.headers.get("origin", "")
             referer = request.headers.get("referer", "")
+            host = request.headers.get("host", "")
             
             allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
+            
+            # 自动允许同源请求（Origin 或 Referer 与 Host 相同）
+            if origin and host:
+                origin_host = origin.replace("https://", "").replace("http://", "").split("/")[0]
+                if origin_host == host:
+                    return await call_next(request)
             
             # 如果没有 origin 和 referer，允许请求通过（可能是直接 API 调用）
             if not origin and not referer:
