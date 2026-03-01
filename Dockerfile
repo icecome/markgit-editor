@@ -4,8 +4,11 @@ LABEL maintainer="MarkGit Editor Team"
 LABEL version="1.2.0"
 LABEL description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y \
+# 安装系统依赖 - 使用缓存挂载加速
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     curl \
@@ -17,8 +20,9 @@ WORKDIR /markgit-editor
 # 复制依赖文件
 COPY requirements.txt .
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# 安装 Python 依赖 - 使用缓存挂载加速
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY . .
