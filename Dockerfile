@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim
 
 LABEL maintainer="MarkGit Editor Team"
 LABEL version="1.2.0"
