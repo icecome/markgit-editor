@@ -1,18 +1,20 @@
-# 基础镜像 - 使用构建参数支持灵活切换
+# 基础镜像 - 支持多架构 (amd64/arm64)
+# 国内构建（默认）：docker buildx build --platform linux/amd64,linux/arm64 --build-arg BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim .
+# 国外构建：docker buildx build --platform linux/amd64,linux/arm64 --build-arg BASE_IMAGE=python:3.11-slim .
 ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim
 FROM ${BASE_IMAGE}
 
-# APT 镜像源 - Debian bookworm
+# APT 镜像源 - 自动检测系统类型
 ARG APT_MIRROR=mirrors.ustc.edu.cn
 
 LABEL maintainer="MarkGit Editor Team"
 LABEL version="1.2.0"
 LABEL description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
 
-# [1/4] 安装系统依赖
+# [1/4] 安装系统依赖 - 自动检测系统类型
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    printf "deb http://${APT_MIRROR}/debian bookworm main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian bookworm-updates main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian bookworm-backports main contrib non-free non-free-firmware\ndeb http://${APT_MIRROR}/debian-security bookworm-security main contrib non-free non-free-firmware\n" > /etc/apt/sources.list && \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
@@ -29,9 +31,6 @@ COPY requirements.txt .
 # [2/4] 安装 Python 依赖
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt \
-        -i https://mirrors.ustc.edu.cn/pypi/simple \
-        --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-        --extra-index-url https://pypi.aliyun.com/simple
 
 # [3/4] 复制应用代码
 COPY . .
