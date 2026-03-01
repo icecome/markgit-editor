@@ -61,8 +61,11 @@ class GitHubOAuthService:
         
         try:
             logger.info(f"正在请求新的设备码，Client ID: {self.client_id[:8]}...")
+            logger.info(f"请求 URL: {self.device_code_url}")
+            logger.info(f"Scope: {self.scope}")
             
-            async with httpx.AsyncClient(verify=False) as client:
+            # 创建 HTTP 客户端，增加超时时间
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     self.device_code_url,
                     data={
@@ -72,9 +75,10 @@ class GitHubOAuthService:
                     headers={
                         "Accept": "application/json",
                         "User-Agent": "MarkGit-Editor"
-                    },
-                    timeout=10.0
+                    }
                 )
+            
+            logger.info(f"GitHub 响应状态码: {response.status_code}")
             
             if response.status_code != 200:
                 logger.error(f"请求设备码失败：{response.status_code} - {response.text}")
@@ -97,14 +101,20 @@ class GitHubOAuthService:
             logger.info(f"新设备码已创建：{device_code.user_code}")
             return device_code
             
+        except httpx.TimeoutException as e:
+            logger.error(f"请求设备码超时：{e}")
+            return None
+        except httpx.ConnectError as e:
+            logger.error(f"连接 GitHub 失败：{e}")
+            return None
         except httpx.RequestError as e:
-            logger.error(f"请求设备码异常：{e}")
+            logger.error(f"请求设备码网络异常：{type(e).__name__} - {e}")
             return None
         except KeyError as e:
             logger.error(f"GitHub 响应格式异常，缺少字段：{e}")
             return None
         except Exception as e:
-            logger.error(f"请求设备码异常：{e}")
+            logger.error(f"请求设备码异常：{type(e).__name__} - {e}")
             import traceback
             logger.error(traceback.format_exc())
             return None
