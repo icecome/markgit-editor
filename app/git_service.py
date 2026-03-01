@@ -12,29 +12,43 @@ from app.context_manager import get_current_cache_path, setup_git_context, get_s
 
 logger = logging.getLogger(__name__)
 
-def get_safe_git_env(cache_path: str, oauth_session_id: Optional[str] = None) -> Dict[str, str]:
+def get_safe_git_env(cache_path: str, oauth_session_id: Optional[str] = None, for_clone: bool = False) -> Dict[str, str]:
     """
     获取安全的 Git 环境变量，明确指定 GIT_DIR 防止向上查找父目录的 .git
     
     Args:
         cache_path: Git 仓库路径
         oauth_session_id: OAuth 会话 ID（可选）
+        for_clone: 是否是克隆操作（克隆时不设置 GIT_DIR）
     
     Returns:
         环境变量字典
     """
     env = os.environ.copy()
     
-    # 明确指定 GIT_DIR 和 GIT_WORK_TREE，防止 Git 向上查找父目录
-    git_dir = os.path.join(cache_path, '.git')
-    env['GIT_DIR'] = git_dir
-    env['GIT_WORK_TREE'] = cache_path
+    # 克隆时不设置 GIT_DIR 和 GIT_WORK_TREE，因为目录还不存在
+    if not for_clone:
+        # 明确指定 GIT_DIR 和 GIT_WORK_TREE，防止 Git 向上查找父目录
+        git_dir = os.path.join(cache_path, '.git')
+        env['GIT_DIR'] = git_dir
+        env['GIT_WORK_TREE'] = cache_path
     
     # 添加 OAuth 令牌
     oauth_token = get_oauth_token(oauth_session_id) if oauth_session_id else None
     if oauth_token:
         env['MARKGIT_OAUTH_TOKEN'] = oauth_token
         logger.info("使用 OAuth 令牌进行 Git 认证")
+        
+        # 配置 Git 凭证助手
+        # 找到凭证助手脚本的路径
+        credential_helper_path = os.path.join(os.path.dirname(__file__), 'git_credential_helper.py')
+        if os.path.exists(credential_helper_path):
+            env['GIT_ASKPASS'] = ''  # 禁用 GIT_ASKPASS
+            env['GIT_TERMINAL_PROMPT'] = '0'  # 禁用终端提示
+            # 使用凭证助手
+            env['GIT_CONFIG_COUNT'] = '1'
+            env['GIT_CONFIG_KEY_0'] = 'credential.helper'
+            env['GIT_CONFIG_VALUE_0'] = f'!python3 {credential_helper_path}'
     
     # SSH 配置
     git_repo = config.BLOG_GIT_SSH
@@ -60,10 +74,14 @@ def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[st
     Returns:
         subprocess.CompletedProcess 对象
     """
-    env = get_safe_git_env(cache_path, oauth_session_id)
+    # 判断是否是克隆操作
+    is_clone = args[0:2] == ['git', 'clone']
+    
+    # 获取环境变量
+    env = get_safe_git_env(cache_path, oauth_session_id, for_clone=is_clone)
     
     # 对于 clone 命令，使用父目录或临时目录作为 cwd
-    if args[0:2] == ['git', 'clone']:
+    if is_clone:
         # 克隆命令不需要 cwd 存在
         if 'cwd' not in kwargs:
             # 使用父目录，如果不存在则使用临时目录
