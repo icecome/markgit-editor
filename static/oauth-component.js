@@ -275,22 +275,23 @@ class OAuthComponent {
             } catch (error) {
                 if (error.response && error.response.data) {
                     const errorData = error.response.data;
+                    const errorInfo = errorData.detail || errorData;
+                    const errorType = errorInfo.error || errorData.error;
                     
-                    if (errorData.error === 'authorization_pending' || errorData.detail === 'authorization_pending') {
+                    if (errorType === 'authorization_pending') {
                         // 继续等待 - 这是正常状态，不需要日志
                         // console.debug('等待用户授权...');
-                    } else if (errorData.error === 'slow_down' || errorData.detail === 'slow_down') {
-                        const newInterval = ((errorData.interval || errorData.detail_interval || 10)) * 1000;
+                    } else if (errorType === 'slow_down') {
+                        const newInterval = ((errorInfo.interval || errorData.interval || 10)) * 1000;
                         console.log(`GitHub 要求降低轮询频率：${newInterval/1000}秒`);
                         // 重置轮询间隔
                         this.stopPolling();
                         this.pollInterval = newInterval;
                         this.startPolling(deviceCode);
-                    } else if (errorData.error === 'expired_token' || errorData.error === 'access_denied' || 
-                               errorData.detail === 'expired_token' || errorData.detail === 'access_denied') {
-                        console.error('OAuth 授权失败:', errorData.error || errorData.detail);
+                    } else if (errorType === 'expired_token' || errorType === 'access_denied') {
+                        console.error('OAuth 授权失败:', errorType);
                         this.stopPolling();
-                        this.showErrorDialog(`授权失败：${errorData.error_description || errorData.detail || errorData.error}`);
+                        this.showErrorDialog(`授权失败：${errorInfo.error_description || errorData.error_description || errorType}`);
                     } else {
                         // 其他错误，记录详细日志
                         console.warn('OAuth 轮询收到未知错误:', errorData);
