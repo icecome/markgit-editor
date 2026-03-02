@@ -425,7 +425,7 @@ if (typeof Vue !== 'undefined') {
                 
                 const formData = new FormData();
                 formData.append('file', this.selectedFileForUpload);
-                formData.append('path', fullPath);
+                formData.append('file_path', fullPath);  // 使用 file_path 匹配后端参数
                 
                 try {
                     await axios.post('/api/file/upload', formData, {
