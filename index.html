@@ -370,13 +370,21 @@
             <div v-if="panelType === 'upload'">
                 <div class="form-group">
                     <label class="form-label">选择要上传的文件</label>
-                    <input type="file" class="form-input" @change="handleFileSelect" accept="*/*">
-                    <p class="form-hint">将上传到：{{ currentDirectory || '根目录' }}</p>
+                    <input type="file" class="form-input" @change="handleFileSelect" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.ico,.md,.markdown,.txt,.json,.yaml,.yml,.toml">
+                    <p class="form-hint">
+                        📷 图片：JPG, PNG, GIF, WebP, BMP, ICO<br>
+                        📄 文档：MD, TXT<br>
+                        ⚙️ 配置：JSON, YAML, TOML<br>
+                        最大文件大小：2MB
+                    </p>
                 </div>
                 <div class="form-group" v-if="selectedFileForUpload">
                     <label class="form-label">文件名</label>
-                    <input type="text" class="form-input" v-model="uploadFileName" placeholder="输入新文件名">
-                    <p class="form-hint">原始文件名：{{ selectedFileForUpload.name }}</p>
+                    <input type="text" class="form-input" v-model="uploadFileName" placeholder="输入新文件名（可选）">
+                    <p class="form-hint">
+                        原始文件名：{{ selectedFileForUpload.name }}<br>
+                        文件大小：{{ formatFileSize(selectedFileForUpload.size) }}
+                    </p>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" @click="closePanel">取消</button>

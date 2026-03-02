@@ -3,9 +3,17 @@ import datetime
 import html
 import shutil
 import asyncio
-from fastapi import APIRouter, HTTPException, Request, Header
+import re
+import io
+import hashlib
+import magic
+from fastapi import APIRouter, HTTPException, Request, Header, UploadFile, File, Form, Depends
 from fastapi.responses import PlainTextResponse
 from typing import Optional
+from PIL import Image
+from defusedxml import ElementTree as ET
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.config import POSTS_PATH, BLOG_GIT_SSH, BLOG_CACHE_PATH, DEFAULT_WHITELIST_EXTENSIONS, logger
 from app.models import ApiResponse
@@ -26,6 +34,319 @@ from app.models import (
 )
 
 router = APIRouter()
+
+# 获取速率限制器的依赖函数
+def get_limiter(request: Request) -> Limiter:
+    return request.app.state.limiter
+
+# === 文件上传安全配置 ===
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico'}
+ALLOWED_DOC_EXTENSIONS = {'.md', '.markdown', '.txt'}
+ALLOWED_CONFIG_EXTENSIONS = {'.json', '.yaml', '.yml', '.toml'}
+DANGEROUS_EXTENSIONS = {
+    '.php', '.php3', '.php4', '.php5', '.php7', '.phtml', '.phar',
+    '.jsp', '.jspx', '.jspa', '.do', '.action',
+    '.asp', '.aspx', '.asa', '.asax', '.ascx', '.ashx', '.asmx',
+    '.cgi', '.pl', '.py', '.rb', '.sh', '.bash',
+    '.exe', '.dll', '.so', '.bat', '.cmd', '.com',
+    '.htm', '.html', '.js', '.jsx', '.ts', '.tsx',
+    '.css', '.scss', '.less',
+}
+MAX_FILE_SIZE = 2 * 1024 * 1024  # 2MB - 足够博客图片、文档使用
+MAX_IMAGE_DIMENSION = 5000  # 5000x5000 - 降低尺寸限制，2MB 下的合理值
+
+def validate_filename_secure(filename: str) -> bool:
+    """安全验证文件名"""
+    if not filename or filename.strip() == '':
+        return False
+    if '/' in filename or '\\' in filename:
+        return False
+    if '\x00' in filename:
+        return False
+    forbidden_names = {'.', '..', 'CON', 'PRN', 'AUX', 'NUL',
+                       'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+                       'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'}
+    name_without_ext = os.path.splitext(filename)[0].upper()
+    if name_without_ext in forbidden_names:
+        return False
+    if len(filename) > 255:
+        return False
+    if re.search(r'[<>:"|？*]', filename):
+        return False
+    if filename.startswith('.'):
+        return False
+    return True
+
+def validate_file_extension_secure(filename: str) -> bool:
+    """安全验证文件扩展名"""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in DANGEROUS_EXTENSIONS:
+        logger.warning(f"危险扩展名被阻止：{filename}")
+        return False
+    name_without_ext = os.path.splitext(filename)[0]
+    if '.' in name_without_ext:
+        inner_ext = os.path.splitext(name_without_ext)[1].lower()
+        if inner_ext in DANGEROUS_EXTENSIONS:
+            logger.warning(f"双重扩展名攻击被阻止：{filename}")
+            return False
+    allowed = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_DOC_EXTENSIONS | ALLOWED_CONFIG_EXTENSIONS
+    if ext not in allowed:
+        logger.warning(f"不支持的文件类型：{filename}")
+        return False
+    return True
+
+def validate_svg_content(content: bytes) -> bool:
+    """验证 SVG 文件内容是否安全"""
+    try:
+        # 1. 使用 defusedxml 解析 SVG，防止 XXE 攻击
+        root = ET.fromstring(content.decode('utf-8'))
+        
+        # 2. 检查根元素是否为 svg
+        if root.tag.lower().split('}')[-1] != 'svg':
+            logger.warning("SVG 根元素不是 <svg> 标签")
+            return False
+        
+        # 3. 递归检查所有元素和属性的安全性
+        def check_element(elem):
+            # 检查标签名
+            tag_name = elem.tag.lower().split('}')[-1]  # 处理命名空间
+            dangerous_elements = {
+                'script', 'iframe', 'object', 'embed', 'form',
+                'style', 'foreignobject', 'switch', 'use',
+                'animate', 'animatemotion', 'animatetransform',
+                'set', 'feimage', 'pattern', 'marker'
+            }
+            if tag_name in dangerous_elements:
+                logger.warning(f"SVG 包含危险元素：{tag_name}")
+                return False
+            
+            # 检查属性
+            for attr_name, attr_value in elem.attrib.items():
+                attr_name_lower = attr_name.lower()
+                
+                # 检查事件处理器
+                if attr_name_lower.startswith('on'):
+                    logger.warning(f"SVG 包含危险事件处理器：{attr_name}")
+                    return False
+                
+                # 检查危险协议（完全禁止外部资源加载）
+                attr_value_lower = attr_value.lower()
+                dangerous_protocols = [
+                    'javascript:', 'data:', 'vbscript:', 'file:',
+                    'ftp:', 'http:', 'https:'  # 完全禁止外部资源
+                ]
+                if any(protocol in attr_value_lower for protocol in dangerous_protocols):
+                    logger.warning(f"SVG 包含危险协议：{attr_value}")
+                    return False
+            
+            # 递归检查子元素
+            for child in elem:
+                if not check_element(child):
+                    return False
+            
+            return True
+        
+        if not check_element(root):
+            return False
+        
+        # 4. 额外检查：确保没有 CDATA 或注释中隐藏的脚本
+        content_str = content.decode('utf-8', errors='ignore').lower()
+        if any(script_tag in content_str for script_tag in [
+            '<![cdata[', '&lt;script', '&lt;iframe', '&lt;object'
+        ]):
+            logger.warning("SVG 包含潜在的编码绕过内容")
+            return False
+        
+        return True
+    except ET.ParseError as e:
+        logger.warning(f"SVG XML 解析失败：{e}")
+        return False
+    except UnicodeDecodeError:
+        logger.warning("SVG 内容不是有效的 UTF-8 编码")
+        return False
+    except Exception as e:
+        logger.error(f"SVG 验证失败：{e}")
+        return False
+
+def validate_image_file(content: bytes, filename: str) -> bool:
+    """验证图片文件是否安全（只验证，不净化）"""
+    try:
+        if len(content) > MAX_FILE_SIZE:
+            logger.warning(f"图片过大：{filename}, 大小：{len(content)}")
+            return False
+        img = Image.open(io.BytesIO(content))
+        img_format = img.format.lower()
+        allowed_formats = {'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico'}
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == '.svg':
+            return validate_svg_content(content)
+        if img_format not in allowed_formats:
+            logger.warning(f"不支持的图片格式：{img_format}, 文件名：{filename}")
+            return False
+        if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+            logger.warning(f"图片尺寸过大：{img.width}x{img.height}, 文件名：{filename}")
+            return False
+        img.close()
+        return True
+    except Exception as e:
+        logger.error(f"图片验证失败：{filename}, 错误：{e}")
+        return False
+
+def sanitize_image(content: bytes, filename: str) -> tuple[bool, bytes]:
+    """净化图片内容，去除元数据和潜在恶意数据"""
+    try:
+        # 验证图片
+        img = Image.open(io.BytesIO(content))
+        img_format = img.format.lower()
+        
+        # 转换为 RGB 模式（去除 Alpha 通道可能的攻击）
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGB')
+        
+        # 重新保存图片，去除 EXIF 等元数据
+        output = io.BytesIO()
+        
+        if img_format in {'jpeg', 'jpg'}:
+            img.save(output, format='JPEG', quality=95, progressive=True, exif=None)
+        elif img_format == 'png':
+            img.save(output, format='PNG', optimize=True)
+        elif img_format == 'gif':
+            img.save(output, format='GIF', optimize=True)
+        elif img_format == 'webp':
+            img.save(output, format='WEBP', quality=95)
+        elif img_format in {'bmp', 'ico'}:
+            img.save(output, format=img_format.upper())
+        else:
+            img.close()
+            return False, content
+        
+        sanitized_content = output.getvalue()
+        img.close()
+        
+        logger.info(f"图片已净化：{filename}, 原始：{len(content)} bytes, 净化后：{len(sanitized_content)} bytes")
+        return True, sanitized_content
+        
+    except Exception as e:
+        logger.error(f"图片净化失败：{filename}, 错误：{e}")
+        return False, content
+
+def validate_mime_type(content: bytes, filename: str) -> bool:
+    """验证 MIME 类型是否与扩展名匹配（可选增强）"""
+    try:
+        mime = magic.from_buffer(content, mime=True)
+        
+        mime_to_ext = {
+            'image/jpeg': {'.jpg', '.jpeg'},
+            'image/png': {'.png'},
+            'image/gif': {'.gif'},
+            'image/webp': {'.webp'},
+            'image/bmp': {'.bmp'},
+            'image/x-icon': {'.ico'},
+            'image/svg+xml': {'.svg'},
+            'text/plain': {'.txt', '.md', '.markdown'},
+            'application/json': {'.json'},
+            'text/yaml': {'.yaml', '.yml'},
+            'application/x-toml': {'.toml'},
+        }
+        
+        ext = os.path.splitext(filename)[1].lower()
+        allowed_exts = mime_to_ext.get(mime, set())
+        
+        # 特殊处理：某些文本文件可能被识别为 text/plain
+        if mime == 'text/plain' and ext in {'.md', '.markdown', '.txt'}:
+            return True
+        
+        if ext not in allowed_exts:
+            logger.warning(f"MIME 类型不匹配：{mime}, 扩展名：{ext}")
+            return False
+        
+        return True
+    except Exception as e:
+        logger.warning(f"MIME 类型验证失败：{e}")
+        # MIME 验证失败不影响上传，只记录日志
+        return True
+
+def validate_file_content(content: bytes, filename: str) -> bool:
+    """验证文本文件内容是否安全"""
+    text_extensions = {'.md', '.txt', '.markdown', '.json', '.yaml', '.yml', '.toml'}
+    ext = os.path.splitext(filename)[1].lower()
+    
+    if ext in text_extensions:
+        try:
+            text_content = content.decode('utf-8', errors='ignore')
+            text_lower = text_content.lower()
+            
+            # 1. 检测服务器端代码特征
+            dangerous_patterns = [
+                r'<\?php', r'<\?=',  # PHP
+                r'<%',                 # ASP/JSP
+                r'<jsp:',              # JSP
+                r'Runtime\.getRuntime', r'ProcessBuilder',  # Java
+                r'eval\s*\(',          # 通用 eval
+                r'exec\s*\(',          # 通用 exec
+                r'system\s*\(',        # 系统调用
+                r'passthru\s*\(',
+                r'shell_exec\s*\(',
+                r'popen\s*\(',
+                r'proc_open\s*\(',
+                r'curl_exec\s*\(',     # PHP cURL
+                r'file_get_contents\s*\([^)]*https?://',  # 远程文件包含
+                r'require\s*\([^)]*https?://',  # 远程包含
+                r'include\s*\([^)]*https?://',
+                r'import\s+lib',       # Python
+                r'__import__\s*\(',    # Python
+                r'subprocess\.',       # Python subprocess
+                r'os\.system\s*\(',    # Python os.system
+                r'os\.popen\s*\(',     # Python os.popen
+            ]
+            
+            for pattern in dangerous_patterns:
+                if re.search(pattern, text_content, re.IGNORECASE | re.MULTILINE):
+                    logger.warning(f"检测到危险代码特征 [{pattern}]: {filename}")
+                    return False
+            
+            # 2. 检测 Base64 编码的可疑内容（长字符串）
+            base64_pattern = r'[A-Za-z0-9+/]{100,}={0,2}'
+            base64_matches = re.findall(base64_pattern, text_content)
+            for match in base64_matches:
+                try:
+                    decoded = base64.b64decode(match).decode('utf-8', errors='ignore').lower()
+                    # 检查解码后是否包含危险内容
+                    dangerous_keywords = ['system(', 'exec(', 'eval(', 'shell_exec', 'passthru', 'proc_open']
+                    if any(kw in decoded for kw in dangerous_keywords):
+                        logger.warning(f"检测到 Base64 编码的危险内容：{filename}")
+                        return False
+                except:
+                    pass
+            
+            # 3. 检测 Markdown 中的 HTML 注入
+            if ext in {'.md', '.markdown'}:
+                # 检查是否包含完整的危险 HTML 标签
+                html_pattern = r'<(script|iframe|object|embed|form|img[^>]+onerror|svg[^>]+onload)'
+                if re.search(html_pattern, text_content, re.IGNORECASE):
+                    logger.warning(f"检测到 HTML 注入：{filename}")
+                    return False
+                
+                # 检查 HTML 实体编码绕过
+                if '&lt;script' in text_lower or '&lt;iframe' in text_lower:
+                    logger.warning(f"检测到编码绕过尝试：{filename}")
+                    return False
+            
+            # 4. 检测配置文件中的危险内容
+            if ext in {'.yaml', '.yml'}:
+                # 检查 YAML 标签注入
+                if re.search(r'!!python/', text_content):
+                    logger.warning(f"检测到 YAML Python 标签注入：{filename}")
+                    return False
+                if '!!ruby/' in text_lower:
+                    logger.warning(f"检测到 YAML Ruby 标签注入：{filename}")
+                    return False
+            
+        except Exception as e:
+            logger.warning(f"文件内容检查失败：{e}")
+            return False
+    
+    return True
 
 @router.get("/health", response_model=ApiResponse)
 def health_check():
@@ -221,6 +542,100 @@ async def delete_file(file_path: str = "", x_session_id: Optional[str] = Header(
     except Exception as e:
         logger.error("删除失败：" + str(e))
         raise HTTPException(status_code=500, detail="删除失败：" + str(e))
+
+@router.post("/file/upload", response_model=ApiResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    file_path: str = Form(...),
+    x_session_id: Optional[str] = Header(None),
+    limiter: Limiter = Depends(get_limiter)
+):
+    """
+    安全的文件上传接口
+    支持图片和文档上传，自动验证文件安全性
+    
+    速率限制：10 次/分钟（防止滥用）
+    """
+    try:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="请先创建会话")
+        
+        # 1. 验证文件名
+        if not validate_filename_secure(file.filename):
+            raise HTTPException(status_code=400, detail="文件名包含非法字符或格式不正确")
+        
+        # 2. 验证文件扩展名
+        if not validate_file_extension_secure(file.filename):
+            raise HTTPException(status_code=400, detail="不允许上传该类型的文件")
+        
+        base_path = get_session_path(x_session_id)
+        setup_git_context(x_session_id)
+        
+        # 3. 验证上传路径（防止路径遍历）
+        full_path = validate_file_path(file_path, base_path=base_path)
+        
+        # 4. 确保文件在允许的目录内
+        real_path = os.path.realpath(full_path)
+        real_base = os.path.realpath(base_path)
+        if not real_path.startswith(real_base):
+            raise HTTPException(status_code=400, detail="非法的上传路径")
+        
+        # 5. 读取文件内容
+        content = await file.read()
+        
+        # 6. 检查文件大小
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 2MB")
+        
+        # 6.5. MIME 类型验证（可选增强，只记录日志不阻止上传）
+        validate_mime_type(content, file.filename)
+        
+        # 7. 根据文件类型进行内容验证和净化
+        ext = os.path.splitext(file.filename)[1].lower()
+        
+        if ext in ALLOWED_IMAGE_EXTENSIONS:
+            if ext == '.svg':
+                if not validate_svg_content(content):
+                    raise HTTPException(status_code=400, detail="SVG 文件包含不安全内容")
+            else:
+                # 验证并净化图片
+                is_valid, sanitized_content = sanitize_image(content, file.filename)
+                if not is_valid:
+                    raise HTTPException(status_code=400, detail="图片验证失败")
+                content = sanitized_content
+        elif ext in ALLOWED_DOC_EXTENSIONS:
+            if not validate_file_content(content, file.filename):
+                raise HTTPException(status_code=400, detail="文件内容包含不安全信息")
+        
+        # 8. 创建目录
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        # 9. 保存文件
+        with open(full_path, 'wb') as f:
+            f.write(content)
+        
+        # 10. 设置安全的文件权限
+        os.chmod(full_path, 0o644)
+        
+        # 11. 添加到 Git
+        git_add()
+        
+        # 12. 计算文件哈希（用于审计和追踪）
+        file_hash = hashlib.sha256(content).hexdigest()
+        
+        logger.info(f"文件已上传：{file_path}, SHA256: {file_hash[:16]}..., 大小：{len(content)} bytes")
+        return ApiResponse(message="文件上传成功", data={
+            "path": file_path, 
+            "filename": file.filename, 
+            "size": len(content),
+            "sha256": file_hash[:16] + "..."  # 只返回前 16 位用于验证
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"上传文件失败：{e}", exc_info=True)  # 记录完整堆栈到后端日志
+        raise HTTPException(status_code=500, detail="上传文件失败，请稍后重试")  # 对用户隐藏细节
 
 @router.post("/file/move", response_model=ApiResponse)
 async def move_file(request: FileMoveRequest, x_session_id: Optional[str] = Header(None)):

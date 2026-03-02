@@ -11,24 +11,47 @@
 const IconRenderer = {
     timer: null,
     pending: false,
-    renderedIcons: new Set(),  // 跟踪已渲染的图标
-    
-    /**
-     * 渲染图标 - 只在需要时渲染
-     */
+    renderedIcons: new Set(),
+    observer: null,
+    initObserver() {
+        if (this.observer) return;
+        
+        this.observer = new MutationObserver((mutations) => {
+            let shouldRender = false;
+            
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1 && node.querySelectorAll) {
+                            const lucideElements = node.querySelectorAll('[data-lucide]');
+                            if (lucideElements.length > 0) {
+                                shouldRender = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (shouldRender && !this.pending) {
+                this.render();
+            }
+        });
+        
+        this.observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    },
     render() {
         if (this.pending) return;
         this.pending = true;
         
-        // 使用 requestAnimationFrame 确保 DOM 已准备好
         requestAnimationFrame(() => {
             try {
                 if (typeof lucide !== 'undefined') {
-                    // 强制重新渲染所有图标（解决初始不显示问题）
-                    // 这是关键：每次都要重新渲染，确保所有图标都显示
                     lucide.createIcons();
                     
-                    // 更新已渲染图标集合
                     this.renderedIcons.clear();
                     const elements = document.querySelectorAll('[data-lucide]');
                     elements.forEach(el => {
@@ -36,25 +59,17 @@ const IconRenderer = {
                     });
                 }
             } catch (error) {
-                // 忽略图标渲染错误，通常是因为元素还未准备好
                 console.debug('Icon render error (ignored):', error.message);
             }
             this.pending = false;
         });
     },
     
-    /**
-     * 延迟渲染 - 防抖版本
-     * @param {number} delay - 延迟时间 (毫秒)
-     */
     renderDelayed(delay = 100) {
         if (this.timer) clearTimeout(this.timer);
         this.timer = setTimeout(() => this.render(), delay);
     },
     
-    /**
-     * 清空缓存 - 强制重新渲染所有图标
-     */
     clearCache() {
         this.renderedIcons.clear();
     }
@@ -92,24 +107,11 @@ const TreeNode = {
             const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        },
-        renderIcons() {
-            this.$nextTick(() => {
-                if (typeof IconRenderer !== 'undefined') {
-                    IconRenderer.render();
-                }
-            });
         }
-    },
-    mounted() {
-        this.renderIcons();
-    },
-    updated() {
-        this.renderIcons();
     },
     template: `
         <div>
-            <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu" :title="node.name">
+            <div class="tree-item" :class="{ 'selected': isSelected || isCurrentDirectory, 'editing': isEditing }" :style="indentStyle" @click="select" @contextmenu="onContextmenu">
                 <span class="tree-toggle" v-if="node.type === 'directory'" @click.stop="toggle" :class="{ 'expanded': isExpanded }">
                     <i v-if="hasChildren" data-lucide="chevron-right" style="width: 16px; height: 16px;"></i>
                 </span>
@@ -118,8 +120,8 @@ const TreeNode = {
                     <i v-if="node.type === 'directory'" data-lucide="folder" style="width: 16px; height: 16px;"></i>
                     <i v-else data-lucide="file-text" style="width: 16px; height: 16px;"></i>
                 </span>
-                <span class="tree-name" :title="node.name">{{ node.name }}</span>
-                <span v-if="node.type === 'file' && node.size" class="file-size" :title="formatSize(node.size)">{{ formatSize(node.size) }}</span>
+                <span class="tree-name">{{ node.name }}</span>
+                <span v-if="node.type === 'file' && node.size" class="file-size">{{ formatSize(node.size) }}</span>
                 <div class="tree-actions">
                     <span class="tree-action-btn" @click.stop="$emit('rename', node)" title="重命名">
                         <i data-lucide="edit-3" style="width: 12px; height: 12px;"></i>
@@ -400,6 +402,13 @@ if (typeof Vue !== 'undefined') {
                     this.uploadFileName = file.name;  // 默认使用原文件名
                 }
             },
+            formatFileSize(bytes) {
+                if (!bytes) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+            },
             async uploadFile() {
                 if (!this.selectedFileForUpload) {
                     this.showToast('请选择文件', 'error');
@@ -429,7 +438,8 @@ if (typeof Vue !== 'undefined') {
                     this.showToast('文件上传成功', 'success');
                 }
                 catch (error) {
-                    this.errorHandler(error);
+                    const errorMsg = error.response?.data?.detail || error.message || '上传失败';
+                    this.showToast(errorMsg, 'error');
                 }
             },
             async getChanges() {
@@ -1031,6 +1041,12 @@ if (typeof Vue !== 'undefined') {
             this._clickHandler = () => { this.hideContextMenu(); };
             document.addEventListener('click', this._clickHandler);
             await this.$nextTick();
+            
+            // 初始化图标观察器
+            if (typeof IconRenderer !== 'undefined' && IconRenderer.initObserver) {
+                IconRenderer.initObserver();
+            }
+            
             IconRenderer.render();
             await this.createOrUseSession();
             await this.initApp();

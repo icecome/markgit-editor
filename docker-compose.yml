@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   markgit-editor:
+    image: markgit-editor
     build: .
     container_name: markgit-editor
     ports:
