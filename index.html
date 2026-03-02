@@ -165,14 +165,19 @@
 <div id="app">
     <nav class="navbar">
         <div class="navbar-content">
-            <div class="logo">
-                <div class="logo-icon">
-                    <i data-lucide="edit-3" style="width: 18px; height: 18px;"></i>
+            <div style="display: flex; align-items: center;">
+                <button class="mobile-menu-toggle" @click="toggleSidebar" title="菜单" style="display: none;">
+                    <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
+                </button>
+                <div class="logo">
+                    <div class="logo-icon">
+                        <i data-lucide="edit-3" style="width: 18px; height: 18px;"></i>
+                    </div>
+                    <span>MarkGit Editor</span>
                 </div>
-                <span>MarkGit Editor</span>
             </div>
             <div class="nav-actions">
-                <button class="btn btn-success" @click="showChangesPanel()">
+                <button class="btn btn-success" @click="showChangesPanel()" title="提交变更">
                     <i data-lucide="git-commit" style="width: 14px; height: 14px;"></i>
                     <span>提交</span>
                 </button>
@@ -197,7 +202,7 @@
     </nav>
 
     <div class="main-container">
-        <div class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
+        <div class="sidebar" :class="{ 'collapsed': sidebarCollapsed, 'open-mobile': showMobileOverlay }">
             <div class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开文件浏览器">
                 <i data-lucide="chevron-left" style="width: 14px; height: 14px; display: inline-block;" v-show="!sidebarCollapsed"></i>
                 <i data-lucide="chevron-right" style="width: 14px; height: 14px; display: inline-block;" v-show="sidebarCollapsed"></i>
@@ -329,7 +334,7 @@
         </div>
     </div>
 
-    <div class="overlay" v-show="panelOpen" @click="closePanel"></div>
+    <div class="overlay" :class="{ 'overlay-mobile-visible': showMobileOverlay }" v-show="panelOpen || showMobileOverlay" @click="handleOverlayClick"></div>
 
     <div class="side-panel" :class="{ 'open': panelOpen }">
         <div class="side-panel-header">

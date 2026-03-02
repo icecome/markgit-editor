@@ -148,6 +148,7 @@ if (typeof Vue !== 'undefined') {
                 contentEditor: null, files: [], fileTree: [], expandedPathsList: [],
                 selectedFile: null, editingFilePath: '', currentDirectory: '', changes: [],
                 loading: false, gitRepo: '', sidebarCollapsed: false, panelOpen: false,
+                showMobileOverlay: false,
                 panelType: '', panelTitle: '', newFileName: '', newFileContent: '',
                 newFolderName: '', renameTargetFile: null, renameNewName: '', moveTargetFile: null,
                 moveSourcePath: '', moveDestPath: '', contextMenuVisible: false,
@@ -341,9 +342,20 @@ if (typeof Vue !== 'undefined') {
             },
             
             toggleSidebar() { 
-                console.log('toggleSidebar clicked, current state:', this.sidebarCollapsed);
-                this.sidebarCollapsed = !this.sidebarCollapsed;
-                console.log('toggleSidebar new state:', this.sidebarCollapsed);
+                const isMobile = window.innerWidth <= 768;
+                
+                if (isMobile) {
+                    // 移动端逻辑：控制侧边栏的展开/收起
+                    this.showMobileOverlay = !this.showMobileOverlay;
+                    this.sidebarCollapsed = false; // 在移动端不折叠侧边栏，只是隐藏
+                } else {
+                    // 桌面端逻辑
+                    this.sidebarCollapsed = !this.sidebarCollapsed;
+                    this.showMobileOverlay = false;
+                }
+                
+                console.log('toggleSidebar - isMobile:', isMobile, 'showMobileOverlay:', this.showMobileOverlay, 'sidebarCollapsed:', this.sidebarCollapsed);
+                
                 // 等待 DOM 更新后再渲染图标
                 this.$nextTick(() => {
                     if (typeof IconRenderer !== 'undefined') {
@@ -658,6 +670,7 @@ if (typeof Vue !== 'undefined') {
             showMovePanel(file) { this.moveTargetFile = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
             closePanel() { 
                 this.panelOpen = false;
+                this.showMobileOverlay = false;
                 this.panelType = '';
                 this.$nextTick(() => {
                     // 确保图标渲染器更新
@@ -665,6 +678,16 @@ if (typeof Vue !== 'undefined') {
                         IconRenderer.render();
                     }
                 });
+            },
+            handleOverlayClick() {
+                // 移动端点击遮罩层关闭侧边栏
+                if (this.showMobileOverlay) {
+                    this.showMobileOverlay = false;
+                }
+                // 如果侧边面板打开，也关闭它
+                if (this.panelOpen) {
+                    this.closePanel();
+                }
             },
             /**
              * 验证文件名是否合法

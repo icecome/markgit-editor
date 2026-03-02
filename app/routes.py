@@ -6,7 +6,6 @@ import asyncio
 import re
 import io
 import hashlib
-import magic
 from fastapi import APIRouter, HTTPException, Request, Header, UploadFile, File, Form, Depends
 from fastapi.responses import PlainTextResponse
 from typing import Optional
@@ -14,6 +13,15 @@ from PIL import Image
 from defusedxml import ElementTree as ET
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+# 兼容 Windows 和 Linux 环境的 magic 库导入
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except (ImportError, OSError, AttributeError):
+    magic = None
+    MAGIC_AVAILABLE = False
+    print("Warning: python-magic not available, file type validation will use file extension only")
 
 from app.config import POSTS_PATH, BLOG_GIT_SSH, BLOG_CACHE_PATH, DEFAULT_WHITELIST_EXTENSIONS, logger
 from app.models import ApiResponse
@@ -232,6 +240,11 @@ def sanitize_image(content: bytes, filename: str) -> tuple[bool, bytes]:
 
 def validate_mime_type(content: bytes, filename: str) -> bool:
     """验证 MIME 类型是否与扩展名匹配（可选增强）"""
+    if not MAGIC_AVAILABLE or magic is None:
+        # magic 库不可用时，只验证文件扩展名
+        logger.debug(f"MIME 类型验证跳过（magic 库不可用）：{filename}")
+        return True
+    
     try:
         mime = magic.from_buffer(content, mime=True)
         
