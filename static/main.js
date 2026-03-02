@@ -228,45 +228,45 @@ if (typeof Vue !== 'undefined') {
                 if (!this.sessionId) {
                     this.repositoryInitialized = false;
                     this.hasRemote = false;
-                    return;
+                    return false;
                 }
                 try {
                     const response = await axios.get('/api/session/status', { headers: this.getHeaders() });
                     if (response.data && response.data.data) {
                         this.repositoryInitialized = response.data.data.initialized || false;
                         this.hasRemote = response.data.data.hasRemote || false;
+                        return true;
                     }
+                    return false;
                 } catch (error) {
                     console.error('Failed to check session status:', error);
                     this.repositoryInitialized = false;
                     this.hasRemote = false;
+                    return false;
                 }
             },
             async createOrUseSession() {
-                // 确保有 userId
                 if (!this.userId) {
                     await this.initUserId();
                 }
                 
                 if (this.sessionId) {
-                    await this.checkSessionStatus();
-                    // 如果会话无效，清除旧会话创建新会话
-                    if (!this.repositoryInitialized && !this.hasRemote) {
-                        const statusResponse = await axios.get('/api/session/status', { headers: this.getHeaders() });
-                        if (!statusResponse.data.data || !statusResponse.data.data.initialized) {
-                            // 会话确实无效，清除并重新创建
-                            sessionStorage.removeItem('sessionId');
-                            this.sessionId = '';
-                            this.gitRepo = '';
-                        }
-                    }
-                    if (this.sessionId) {
+                    const isValid = await this.checkSessionStatus();
+                    if (isValid && this.repositoryInitialized) {
+                        console.log('Reusing existing valid session:', this.sessionId.substring(0, 8) + '...');
                         return;
                     }
+                    if (isValid) {
+                        console.log('Session exists but not initialized, reusing');
+                        return;
+                    }
+                    console.log('Session invalid, creating new one');
+                    sessionStorage.removeItem('sessionId');
+                    this.sessionId = '';
+                    this.gitRepo = '';
                 }
                 
                 try {
-                    // 创建新会话，传递 userId（单用户单会话策略）
                     const headers = {
                         ...this.getHeaders(),
                         'X-User-ID': this.userId
@@ -274,9 +274,10 @@ if (typeof Vue !== 'undefined') {
                     const response = await axios.get('/api/session/create', { headers });
                     if (response.data && response.data.data) {
                         this.sessionId = response.data.data.sessionId;
-                        sessionStorage.setItem('sessionId', this.sessionId);  // 使用 sessionStorage
-                        this.gitRepo = ''; // 新会话不保留 Git 配置
+                        sessionStorage.setItem('sessionId', this.sessionId);
+                        this.gitRepo = '';
                         await this.checkSessionStatus();
+                        console.log('New session created:', this.sessionId.substring(0, 8) + '...');
                         this.showToast('新会话已创建，请配置远程仓库地址', 'success');
                     }
                 } catch (error) {

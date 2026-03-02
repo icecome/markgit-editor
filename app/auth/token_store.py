@@ -41,7 +41,7 @@ class MemoryTokenStore:
             'created_at': datetime.now(),
             'expires_at': datetime.now() + timedelta(seconds=ttl)
         }
-        logger.info(f"存储令牌：{session_id[:4]}***")
+        logger.info(f"存储令牌：session_id={session_id[:8]}...")
     
     def get(self, session_id: str) -> Optional[dict]:
         """获取令牌"""

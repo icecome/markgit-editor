@@ -1,6 +1,6 @@
 import os
 import json
-import uuid
+import secrets
 import shutil
 import threading
 from datetime import datetime, timedelta
@@ -74,8 +74,8 @@ class SessionManager:
         Returns:
             (session_id, session_path) 元组
         """
-        session_id = str(uuid.uuid4())
-        user_id = user_id or session_id
+        session_id = secrets.token_urlsafe(32)
+        user_id = user_id or session_id[:16]
         session_path = os.path.normpath(os.path.join(self.cache_base_path, f"user_{user_id}"))
         
         # 如果是老用户，清理旧会话（单用户单会话策略）

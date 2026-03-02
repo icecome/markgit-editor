@@ -1,9 +1,9 @@
 """
 OAuth 认证路由端点
 """
-from fastapi import APIRouter, HTTPException, Header, Body, Response
+from fastapi import APIRouter, HTTPException, Header, Body, Response, Request
 from typing import Optional, Dict, Any
-import uuid
+import secrets
 import base64
 import io
 
@@ -15,6 +15,7 @@ except ImportError:
 
 from app.auth.github_oauth import github_oauth
 from app.auth.token_store import token_store
+from app.auth.rate_limiter import check_rate_limit
 from app.config import logger
 
 router = APIRouter(prefix="/auth", tags=["OAuth"])
@@ -50,7 +51,7 @@ def generate_qr_code(uri: str) -> str:
 
 
 @router.get("/device-code")
-async def get_device_code():
+async def get_device_code(request: Request):
     """
     请求设备码
     
@@ -61,13 +62,31 @@ async def get_device_code():
         "verification_uri": "https://github.com/login/device",
         "expires_in": 900,
         "interval": 5,
-        "qr_code": "data:image/png;base64,..."  # 二维码
+        "qr_code": "data:image/png;base64,...",  # 二维码
+        "state": "xxx"  # CSRF 防护
     }
     """
+    # 检查速率限制（每 IP 每分钟最多 5 次）
+    is_allowed, retry_after = check_rate_limit(
+        key=request.client.host if request.client else "unknown",
+        max_requests=5,
+        window_seconds=60
+    )
+    
+    if not is_allowed:
+        retry_after_seconds = retry_after if retry_after > 0 else 60
+        raise HTTPException(
+            status_code=429,
+            detail=f"请求过于频繁，请{retry_after_seconds}秒后重试"
+        )
+    
     device_code = await github_oauth.request_device_code()
     
     if not device_code:
         raise HTTPException(status_code=500, detail="无法请求设备码，请检查 GitHub OAuth 配置")
+    
+    # 生成 CSRF state 参数
+    state = secrets.token_urlsafe(32)
     
     # 生成二维码
     qr_uri = f"{device_code.verification_uri}?user_code={device_code.user_code}"
@@ -80,31 +99,38 @@ async def get_device_code():
         "verification_uri_complete": qr_uri,
         "expires_in": device_code.expires_in,
         "interval": device_code.interval,
-        "qr_code": qr_code
+        "qr_code": qr_code,
+        "state": state
     }
 
 
 @router.post("/token")
-async def get_access_token(device_code: str = Body(..., embed=True)):
+async def get_access_token(
+    device_code: str = Body(..., embed=True),
+    state: Optional[str] = Body(None, embed=True)
+):
     """
     轮询获取访问令牌
     
     请求:
-    {"device_code": "xxx"}
+    {
+        "device_code": "xxx",
+        "state": "xxx"  # 可选，CSRF 防护
+    }
     
     返回:
     成功:
     {
-        "access_token": "gho_xxx",
+        "session_id": "xxx",
         "token_type": "bearer",
-        "session_id": "xxx"
+        "expires_in": 3600
     }
     
     错误:
     HTTP 400 {"error": "authorization_pending"}
     """
     try:
-        # 轮询令牌
+        # 潮询令牌
         access_token, error = await github_oauth.poll_access_token(device_code)
         
         if error == "authorization_pending":
@@ -159,6 +185,18 @@ async def get_access_token(device_code: str = Body(..., embed=True)):
             # 其他错误
             raise HTTPException(status_code=400, detail=error)
         
+        # 验证 CSRF state 参数（如果提供）
+        if state:
+            if not secrets.compare_digest(state, device_code.device_code.encode()):
+                logger.warning(f"CSRF state 验证失败：{state}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="CSRF token 验证失败，请刷新页面重试"
+                )
+        
+        if not access_token:
+            raise HTTPException(status_code=500, detail="获取令牌失败")
+        
         if not access_token:
             raise HTTPException(status_code=500, detail="获取令牌失败")
             
@@ -167,11 +205,11 @@ async def get_access_token(device_code: str = Body(..., embed=True)):
         raise
     except Exception as e:
         # 处理其他意外错误
-        logger.error(f"获取 access_token 时发生错误：{str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取令牌失败：{str(e)}")
+        logger.error(f"获取 access_token 时发生错误：{str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="获取令牌失败，请稍后重试")
     
-    # 生成会话 ID
-    session_id = str(uuid.uuid4())
+    # 生成会话 ID（使用加密安全的随机数）
+    session_id = secrets.token_urlsafe(32)
     
     # 存储令牌
     token_ttl = 3600  # 1 小时
@@ -184,9 +222,8 @@ async def get_access_token(device_code: str = Body(..., embed=True)):
     logger.info(f"OAuth 会话已创建：{session_id[:8]}...")
     
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
         "session_id": session_id,
+        "token_type": "bearer",
         "expires_in": token_ttl
     }
 

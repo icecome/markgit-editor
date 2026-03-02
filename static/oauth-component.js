@@ -47,10 +47,19 @@ class OAuthComponent {
         }
         
         if (this.currentDeviceCode) {
-            console.log('Device code already exists, showing existing dialog');
-            this.showAuthDialog(this.currentDeviceCode);
-            this.startPolling(this.currentDeviceCode);
-            return;
+            const now = Date.now();
+            const expiresAt = this.currentDeviceCode.expires_at || 0;
+            
+            if (now < expiresAt) {
+                console.log('Reusing valid device code, expires in:', Math.floor((expiresAt - now) / 1000), 'seconds');
+                this.showAuthDialog(this.currentDeviceCode);
+                this.startPolling(this.currentDeviceCode);
+                return;
+            } else {
+                console.log('Device code expired, requesting new one');
+                this.currentDeviceCode = null;
+                this.stopPolling();
+            }
         }
         
         this.isRequestingDeviceCode = true;
@@ -60,7 +69,13 @@ class OAuthComponent {
             const response = await axios.get('/api/auth/device-code');
             const deviceCode = response.data;
             
-            console.log('Device code received:', deviceCode);
+            deviceCode.expires_at = Date.now() + (deviceCode.expires_in * 1000);
+            
+            console.log('Device code received:', {
+                user_code: deviceCode.user_code,
+                expires_in: deviceCode.expires_in,
+                expires_at: new Date(deviceCode.expires_at).toISOString()
+            });
             
             this.currentDeviceCode = deviceCode;
             
@@ -393,13 +408,17 @@ class OAuthComponent {
         }
         
         if (this.oauthAuthenticated && this.oauthUser) {
+            const safeAvatarUrl = this.escapeHtml(this.oauthUser.avatar_url || '');
+            const safeLogin = this.escapeHtml(this.oauthUser.login || '');
+            const safeName = this.escapeHtml(this.oauthUser.name || safeLogin);
+            
             // 已登录状态
             container.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 8px; margin-right: 10px;">
-                    <img src="${this.oauthUser.avatar_url}" 
-                         alt="${this.oauthUser.login}" 
+                    <img src="${safeAvatarUrl}" 
+                         alt="${safeLogin}" 
                          style="width: 24px; height: 24px; border-radius: 50%; vertical-align: middle;">
-                    <span style="font-size: 13px; vertical-align: middle;">${this.oauthUser.login}</span>
+                    <span style="font-size: 13px; vertical-align: middle;">${safeLogin}</span>
                     <button id="oauth-logout-btn" class="btn btn-ghost btn-sm" title="登出" style="padding: 2px 6px;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

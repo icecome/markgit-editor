@@ -1,10 +1,11 @@
 import os
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -14,6 +15,8 @@ from app.routes import router
 from app.cleanup_service import cleanup_service
 from app.auth.routes import router as auth_router
 from app.version import __version__
+
+from app.auth.rate_limiter import check_rate_limit, check_request_body_size
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -50,6 +53,43 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         return await call_next(request)
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """添加安全响应头"""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+        
+        if request.url.scheme == 'https':
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        
+        if request.url.path.startswith('/api/'):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        
+        return response
+
+class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """请求体大小限制中间件"""
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ["POST", "PUT", "PATCH"]:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    length = int(content_length)
+                    is_valid, error_msg = check_request_body_size(length)
+                    if not is_valid:
+                        raise HTTPException(status_code=413, detail=error_msg)
+                except ValueError:
+                    pass
+        
+        return await call_next(request)
+
 app = FastAPI(
     title="MarkGit Editor API", 
     version=__version__,
@@ -72,6 +112,8 @@ app.add_middleware(
 )
 
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestBodySizeLimitMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

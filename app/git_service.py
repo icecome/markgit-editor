@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import logging
 import time
+import re
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse
 
@@ -11,6 +12,52 @@ from app.auth.token_store import token_store
 from app.context_manager import get_current_cache_path, setup_git_context, get_session_path
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_GIT_COMMANDS = {
+    'clone', 'pull', 'push', 'add', 'commit', 'status',
+    'remote', 'branch', 'checkout', 'fetch', 'init',
+    'config', 'log', 'diff', 'merge', 'reset', 'rev-parse'
+}
+
+DANGEROUS_GIT_OPTIONS = {
+    '--exec', '--upload-pack', '--receive-pack',
+    '--config', '-c', '--git-dir'
+}
+
+def validate_git_args(args: List[str]) -> bool:
+    """
+    验证 Git 命令参数是否安全
+    
+    Args:
+        args: Git 命令参数列表
+        
+    Returns:
+        命令是否安全
+    """
+    if not args or len(args) < 2:
+        return False
+    
+    if args[0] != 'git':
+        return False
+    
+    subcommand = args[1]
+    if subcommand not in ALLOWED_GIT_COMMANDS:
+        logger.warning(f"不允许的 Git 子命令：{subcommand}")
+        return False
+    
+    for arg in args:
+        if arg in DANGEROUS_GIT_OPTIONS:
+            logger.warning(f"危险的 Git 选项：{arg}")
+            return False
+    
+    for arg in args:
+        if arg.startswith('--') and '=' in arg:
+            option_name = arg.split('=')[0]
+            if option_name in DANGEROUS_GIT_OPTIONS:
+                logger.warning(f"危险的 Git 选项：{arg}")
+                return False
+    
+    return True
 
 def get_safe_git_env(cache_path: str, oauth_session_id: Optional[str] = None, for_clone: bool = False) -> Dict[str, str]:
     """
@@ -73,8 +120,13 @@ def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[st
     
     Returns:
         subprocess.CompletedProcess 对象
+        
+    Raises:
+        ValueError: 如果 Git 命令不安全
     """
-    # 判断是否是克隆操作
+    if not validate_git_args(args):
+        raise ValueError(f"不安全的 Git 命令：{' '.join(args[:3])}")
+    
     is_clone = args[0:2] == ['git', 'clone']
     
     # 获取环境变量
@@ -347,34 +399,72 @@ def git_add(cache_path: str = None, oauth_session_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Git add 操作失败")
 
 def validate_deploy_command(cmd: str) -> list:
+    """
+    验证部署命令是否安全
+    
+    Args:
+        cmd: 部署命令字符串
+        
+    Returns:
+        命令参数列表
+        
+    Raises:
+        ValueError: 如果命令不安全
+    """
     if not cmd:
         return []
+    
     cmd = cmd.strip()
     if not cmd:
         return []
+    
+    dangerous_chars = ['|', ';', '&', '$', '`', '>', '<', '\n', '\r', '(', ')', '{', '}', '[', ']']
+    for char in dangerous_chars:
+        if char in cmd:
+            raise ValueError(f"部署命令包含危险字符：{char}")
+    
+    dangerous_patterns = [
+        r'\$\([^)]+\)',  # $(command)
+        r'`[^`]+`',      # `command`
+        r'\$\{[^}]+\}',  # ${variable}
+        r'\$\w+',        # $variable
+    ]
+    for pattern in dangerous_patterns:
+        if re.search(pattern, cmd):
+            raise ValueError(f"部署命令包含危险模式：{pattern}")
+    
     parts = cmd.split()
+    if not parts:
+        return []
+    
     script_path = parts[0]
+    
     if not os.path.isabs(script_path):
         raise ValueError(f"部署脚本必须使用绝对路径: {script_path}")
+    
     if not os.path.isfile(script_path):
         raise ValueError(f"部署脚本不存在: {script_path}")
+    
     if not os.access(script_path, os.X_OK):
         raise ValueError(f"部署脚本不可执行: {script_path}")
-    # 强制要求配置允许目录（生产环境必须配置）
+    
     allowed_dir = os.getenv('ALLOWED_DEPLOY_SCRIPTS_DIR', '')
     if not allowed_dir:
         logger.error("部署命令执行失败：未配置 ALLOWED_DEPLOY_SCRIPTS_DIR 环境变量")
         raise ValueError("必须配置 ALLOWED_DEPLOY_SCRIPTS_DIR 环境变量以指定允许的部署脚本目录")
     
-    # 验证脚本在允许目录内
     abs_script = os.path.abspath(script_path)
     abs_allowed = os.path.abspath(allowed_dir)
     if not abs_script.startswith(abs_allowed + os.sep) and abs_script != abs_allowed:
         logger.error(f"部署脚本不在允许目录内：{abs_script} (允许目录：{abs_allowed})")
         raise ValueError(f"部署脚本必须在允许目录内：{allowed_dir}")
-    for part in parts:
-        if any(c in part for c in ['|', ';', '&', '$', '`', '>', '<', '\n', '\r']):
-            raise ValueError(f"部署命令包含非法字符: {part}")
+    
+    for part in parts[1:]:
+        if part.startswith('-'):
+            continue
+        if any(c in part for c in dangerous_chars):
+            raise ValueError(f"部署命令参数包含非法字符: {part}")
+    
     return parts
 
 def deploy():
