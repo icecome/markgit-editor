@@ -717,7 +717,7 @@ body {
     right: 0; 
     bottom: 0; 
     background: rgba(0, 0, 0, 0.4); 
-    z-index: var(--z-overlay); 
+    z-index: 99; 
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--duration-normal);
@@ -732,23 +732,6 @@ body {
     overflow-y: auto; 
     flex: 1; 
     overscroll-behavior: contain; 
-}
-
-.overlay { 
-    position: fixed; 
-    top: 0; 
-    left: 0; 
-    right: 0; 
-    bottom: 0; 
-    background: rgba(0, 0, 0, 0.4); 
-    z-index: 90; 
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.3s;
-    will-change: opacity;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    transform: translateZ(0);
 }
 
 .overlay[style*="display: none"] {
@@ -769,6 +752,8 @@ body {
     align-items: center; 
     flex-shrink: 0;
     background: var(--bg-tertiary);
+    position: relative;
+    z-index: 101;
 }
 
 .side-panel-title { 
@@ -788,6 +773,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 102;
 }
 
 .side-panel-close:hover { 

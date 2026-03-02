@@ -2,58 +2,28 @@ version: '3.8'
 
 services:
   markgit-editor:
-    build:
-      context: .
-      args:
-        BASE_IMAGE: ${BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/python:3.11-slim}
-        APT_MIRROR: ${APT_MIRROR:-mirrors.ustc.edu.cn}
+    build: .
     container_name: markgit-editor
-    dns:
-      - 8.8.8.8
-      - 114.114.114.114
-      - 223.5.5.5
     ports:
       - "13131:13131"
     environment:
-      - PRODUCTION=true
       - PORT=13131
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:13131}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - GITHUB_SCOPE=${GITHUB_SCOPE:-repo,workflow}
       - REDIS_URL=redis://redis:6379/0
-      - BLOG_CACHE_PATH=/markgit-editor/blog_cache
-      - SESSION_TIMEOUT_HOURS=${SESSION_TIMEOUT_HOURS:-1}
-      - MAX_CONCURRENT_SESSIONS=${MAX_CONCURRENT_SESSIONS:-100}
     volumes:
       - markgit-cache:/markgit-editor/blog_cache
     depends_on:
       - redis
-    restart: unless-stopped
-    networks:
-      - markgit-network
+    restart: always
 
   redis:
     image: redis:7-alpine
     container_name: markgit-redis
-    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
-    restart: unless-stopped
-    networks:
-      - markgit-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    restart: always
 
 volumes:
   markgit-cache:
-    driver: local
   redis-data:
-    driver: local
-
-networks:
-  markgit-network:
-    driver: bridge

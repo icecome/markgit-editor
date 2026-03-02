@@ -92,7 +92,20 @@ const TreeNode = {
             const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        },
+        renderIcons() {
+            this.$nextTick(() => {
+                if (typeof IconRenderer !== 'undefined') {
+                    IconRenderer.render();
+                }
+            });
         }
+    },
+    mounted() {
+        this.renderIcons();
+    },
+    updated() {
+        this.renderIcons();
     },
     template: `
         <div>
@@ -346,15 +359,18 @@ if (typeof Vue !== 'undefined') {
                 try {
                     const response = await axios.post('/api/commit', {}, { headers: this.getHeaders() });
                     
-                    // 检查提交是否成功
                     if (!response.data || response.data.success === false) {
                         throw new Error(response.data?.message || '提交失败');
                     }
                     
-                    this.showToast(response.data?.message || '提交成功', 'success'); 
-                    this.changes = []; 
+                    this.showToast(response.data?.message || '提交成功', 'success');
+                    this.changes = [];
                     this.closePanel();
-                    await this.getFiles();
+                    try {
+                        await this.getFiles();
+                    } catch (refreshError) {
+                        console.error('刷新文件列表失败:', refreshError);
+                    }
                 }
                 catch (error) { 
                     console.error('提交失败:', error);
@@ -472,6 +488,12 @@ if (typeof Vue !== 'undefined') {
                 } else {
                     this.expandedPathsList.push(path);
                 }
+                // 展开/折叠后渲染图标
+                this.$nextTick(() => {
+                    if (typeof IconRenderer !== 'undefined') {
+                        IconRenderer.render();
+                    }
+                });
             },
             async initWorkspace() {
                 if (!this.sessionId) {
@@ -624,11 +646,14 @@ if (typeof Vue !== 'undefined') {
             showRenamePanel(file) { this.renameTargetFile = file; this.renameNewName = file.name; this.panelTitle = '重命名'; this.panelType = 'rename'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
             showMovePanel(file) { this.moveTargetFile = file; this.moveSourcePath = file.path; this.moveDestPath = file.path; this.panelTitle = '移动文件'; this.panelType = 'move'; this.panelOpen = true; this.hideContextMenu(); this.$nextTick(() => IconRenderer.render()); },
             closePanel() { 
-                this.panelOpen = false; 
-                // 等待动画完成后清空面板类型
-                setTimeout(() => {
-                    this.panelType = '';
-                }, 300);
+                this.panelOpen = false;
+                this.panelType = '';
+                this.$nextTick(() => {
+                    // 确保图标渲染器更新
+                    if (typeof IconRenderer !== 'undefined') {
+                        IconRenderer.render();
+                    }
+                });
             },
             /**
              * 验证文件名是否合法

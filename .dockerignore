@@ -4,14 +4,16 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
-ENV/
-env/
-.venv/
+*.egg-info/
+.eggs/
 
 # Git
 .git/
 .gitignore
+
+# Environment
+.env
+.env.local
 
 # IDE
 .vscode/
@@ -19,32 +21,27 @@ env/
 *.swp
 *.swo
 
-# Cache
+# Cache and logs
 blog_cache/
 *.log
+logs/
 
-# Environment
-.env
-.env.local
-.env.*.local
+# OS files
+.DS_Store
+Thumbs.db
 
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
+# Runtime files
+pid
+*.tmp
+*.bak
 
-# Documentation
+# Documentation (keep README)
 docs/
 *.md
 !README.md
 
-# Test
+# Test files
 tests/
 .pytest_cache/
-
-# Misc
-.DS_Store
-Thumbs.db
-*.bak
-*.tmp
-pid
+.tox/
+htmlcov/
