@@ -8,6 +8,7 @@
 logs/
 
 # Python 缓存
+app/__pycache__/
 __pycache__/
 *.py[cod]
 *$py.class
