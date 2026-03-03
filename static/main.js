@@ -1,18 +1,19 @@
 /**
- * 图标渲染器 - 优化性能，避免重复渲染
+ * 图标渲染器 - 增量渲染优化
  * 
  * 工作原理:
- * 1. 使用 Set 跟踪已渲染的图标
- * 2. 只渲染新的或重新创建的图标
+ * 1. 使用 Set 跟踪已渲染的图标元素
+ * 2. 只渲染新增的图标（增量渲染）
  * 3. 使用 requestAnimationFrame 优化渲染时机
  * 4. 使用防抖避免频繁调用
- * 5. 强制重新渲染所有图标，确保不遗漏
+ * 5. MutationObserver 自动检测新增图标
  */
 const IconRenderer = {
     timer: null,
     pending: false,
-    renderedIcons: new Set(),
+    renderedElements: new WeakSet(),
     observer: null,
+    
     initObserver() {
         if (this.observer) return;
         
@@ -22,19 +23,26 @@ const IconRenderer = {
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length > 0) {
                     for (const node of mutation.addedNodes) {
-                        if (node.nodeType === 1 && node.querySelectorAll) {
-                            const lucideElements = node.querySelectorAll('[data-lucide]');
-                            if (lucideElements.length > 0) {
+                        if (node.nodeType === 1) {
+                            if (node.hasAttribute && node.hasAttribute('data-lucide')) {
                                 shouldRender = true;
                                 break;
+                            }
+                            if (node.querySelectorAll) {
+                                const lucideElements = node.querySelectorAll('[data-lucide]');
+                                if (lucideElements.length > 0) {
+                                    shouldRender = true;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
+                if (shouldRender) break;
             }
             
             if (shouldRender && !this.pending) {
-                this.render();
+                this.renderIncremental();
             }
         });
         
@@ -43,6 +51,35 @@ const IconRenderer = {
             subtree: true
         });
     },
+    
+    renderIncremental() {
+        if (this.pending) return;
+        this.pending = true;
+        
+        requestAnimationFrame(() => {
+            try {
+                if (typeof lucide !== 'undefined') {
+                    const allElements = document.querySelectorAll('[data-lucide]');
+                    const newElements = [];
+                    
+                    allElements.forEach(el => {
+                        if (!this.renderedElements.has(el)) {
+                            newElements.push(el);
+                            this.renderedElements.add(el);
+                        }
+                    });
+                    
+                    if (newElements.length > 0) {
+                        lucide.createIcons();
+                    }
+                }
+            } catch (error) {
+                console.debug('Icon render error (ignored):', error.message);
+            }
+            this.pending = false;
+        });
+    },
+    
     render() {
         if (this.pending) return;
         this.pending = true;
@@ -52,10 +89,9 @@ const IconRenderer = {
                 if (typeof lucide !== 'undefined') {
                     lucide.createIcons();
                     
-                    this.renderedIcons.clear();
                     const elements = document.querySelectorAll('[data-lucide]');
                     elements.forEach(el => {
-                        this.renderedIcons.add(el.getAttribute('data-lucide'));
+                        this.renderedElements.add(el);
                     });
                 }
             } catch (error) {
@@ -67,11 +103,11 @@ const IconRenderer = {
     
     renderDelayed(delay = 100) {
         if (this.timer) clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.render(), delay);
+        this.timer = setTimeout(() => this.renderIncremental(), delay);
     },
     
     clearCache() {
-        this.renderedIcons.clear();
+        this.renderedElements = new WeakSet();
     }
 };
 
@@ -165,7 +201,6 @@ if (typeof Vue !== 'undefined') {
                 hasUnsavedChanges: false,
                 saving: false,
                 committing: false,
-                loading: false,
                 loadingText: '正在加载文件...',
                 lastSavedContent: '',
                 sessionId: sessionStorage.getItem('sessionId') || '',
@@ -193,7 +228,10 @@ if (typeof Vue !== 'undefined') {
         },
         methods: {
             getHeaders() {
-                const headers = { 'Content-Type': 'application/json' };
+                const headers = { 
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'  // CSRF 保护：标识 AJAX 请求
+                };
                 if (this.sessionId) {
                     headers['X-Session-ID'] = this.sessionId;
                 }

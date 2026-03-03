@@ -8,7 +8,7 @@ from typing import Dict, Optional, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from app.config import logger
+from app.config import logger, SSL_VERIFY
 
 
 @dataclass
@@ -64,8 +64,7 @@ class GitHubOAuthService:
             logger.info(f"请求 URL: {self.device_code_url}")
             logger.info(f"Scope: {self.scope}")
             
-            # 创建 HTTP 客户端，增加超时时间
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=SSL_VERIFY) as client:
                 response = await client.post(
                     self.device_code_url,
                     data={
@@ -149,40 +148,20 @@ class GitHubOAuthService:
             return None, "access_denied"
         
         try:
-            # 同样需要跳过 SSL 验证（开发环境）
-            try:
-                async with httpx.AsyncClient(verify=False) as client:
-                    response = await client.post(
-                        self.access_token_url,
-                        data={
-                            "client_id": self.client_id,
-                            "client_secret": self.client_secret,
-                            "device_code": device_code,
-                            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
-                        },
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
-            except Exception as e:
-                logger.warning(f"SSL 验证失败，使用默认配置：{e}")
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        self.access_token_url,
-                        data={
-                            "client_id": self.client_id,
-                            "client_secret": self.client_secret,
-                            "device_code": device_code,
-                            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
-                        },
-                        headers={
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
+            async with httpx.AsyncClient(verify=SSL_VERIFY, timeout=10.0) as client:
+                response = await client.post(
+                    self.access_token_url,
+                    data={
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "MarkGit-Editor"
+                    }
+                )
             
             # 解析响应
             data = response.json()
@@ -242,30 +221,15 @@ class GitHubOAuthService:
             用户信息字典，失败返回 None
         """
         try:
-            # 跳过 SSL 验证（开发环境）
-            try:
-                async with httpx.AsyncClient(verify=False) as client:
-                    response = await client.get(
-                        self.user_info_url,
-                        headers={
-                            "Authorization": f"token {access_token}",
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
-            except Exception as e:
-                logger.warning(f"SSL 验证失败，使用默认配置：{e}")
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        self.user_info_url,
-                        headers={
-                            "Authorization": f"token {access_token}",
-                            "Accept": "application/json",
-                            "User-Agent": "MarkGit-Editor"
-                        },
-                        timeout=10.0
-                    )
+            async with httpx.AsyncClient(verify=SSL_VERIFY, timeout=10.0) as client:
+                response = await client.get(
+                    self.user_info_url,
+                    headers={
+                        "Authorization": f"token {access_token}",
+                        "Accept": "application/json",
+                        "User-Agent": "MarkGit-Editor"
+                    }
+                )
             
             if response.status_code != 200:
                 logger.error(f"获取用户信息失败：{response.status_code}")
@@ -291,12 +255,11 @@ class GitHubOAuthService:
             return False
         
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=SSL_VERIFY, timeout=10.0) as client:
                 response = await client.delete(
                     f"https://api.github.com/applications/{self.client_id}/grant",
                     auth=(self.client_id, self.client_secret),
-                    json={"access_token": access_token},
-                    timeout=10.0
+                    json={"access_token": access_token}
                 )
                 
                 return response.status_code == 204

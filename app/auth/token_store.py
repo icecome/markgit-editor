@@ -82,16 +82,25 @@ class MemoryTokenStore:
 
 
 class RedisTokenStore:
-    """Redis 令牌存储（生产环境）"""
+    """Redis 令牌存储（生产环境）- 使用连接池优化"""
     
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    _pool = None
+    
+    def __init__(self, redis_url: str = "redis://localhost:6379/0", max_connections: int = 10):
         if not REDIS_AVAILABLE:
             raise ImportError("redis 库未安装，请运行：pip install redis")
         
         try:
-            self.redis = redis.from_url(redis_url)
+            # 使用连接池优化性能
+            if RedisTokenStore._pool is None:
+                RedisTokenStore._pool = redis.ConnectionPool.from_url(
+                    redis_url,
+                    max_connections=max_connections,
+                    decode_responses=True
+                )
+            self.redis = redis.Redis(connection_pool=RedisTokenStore._pool)
             self.redis.ping()
-            logger.info("Redis 连接成功")
+            logger.info(f"Redis 连接池已初始化（最大连接数：{max_connections}）")
         except Exception as e:
             logger.error(f"Redis 连接失败：{e}")
             raise
@@ -128,7 +137,15 @@ class RedisTokenStore:
     def get_all_sessions(self) -> list:
         """获取所有会话 ID"""
         keys = self.redis.keys("markgit:token:*")
-        return [k.decode().replace("markgit:token:", "") for k in keys]
+        return [k.replace("markgit:token:", "") for k in keys]
+    
+    @classmethod
+    def close_pool(cls):
+        """关闭连接池（应用关闭时调用）"""
+        if cls._pool:
+            cls._pool.disconnect()
+            cls._pool = None
+            logger.info("Redis 连接池已关闭")
 
 
 # 全局令牌存储实例

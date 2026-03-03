@@ -23,7 +23,7 @@ except (ImportError, OSError, AttributeError):
     MAGIC_AVAILABLE = False
     print("Warning: python-magic not available, file type validation will use file extension only")
 
-from app.config import POSTS_PATH, BLOG_GIT_SSH, BLOG_CACHE_PATH, DEFAULT_WHITELIST_EXTENSIONS, logger
+from app.config import POSTS_PATH, BLOG_GIT_SSH, BLOG_CACHE_PATH, DEFAULT_WHITELIST_EXTENSIONS, logger, MAX_FILE_CONTENT_SIZE
 from app.models import ApiResponse
 from app.file_service import (
     check_name, get_md_yaml, delete_image_not_included,
@@ -472,6 +472,12 @@ async def create_file(request: FileCreateRequest, x_session_id: Optional[str] = 
     try:
         if not x_session_id:
             raise HTTPException(status_code=400, detail="请先创建会话")
+        
+        # 验证文件内容长度
+        content_size = len(request.content.encode('utf-8'))
+        if content_size > MAX_FILE_CONTENT_SIZE:
+            raise HTTPException(status_code=413, detail=f"文件内容过大（{content_size / 1024:.1f}KB），最大支持 {MAX_FILE_CONTENT_SIZE / 1024:.0f}KB")
+        
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(request.path, base_path=base_path)
@@ -492,6 +498,12 @@ async def save_file(request: FileSaveRequest, x_session_id: Optional[str] = Head
     try:
         if not x_session_id:
             raise HTTPException(status_code=400, detail="请先创建会话")
+        
+        # 验证文件内容长度
+        content_size = len(request.content.encode('utf-8'))
+        if content_size > MAX_FILE_CONTENT_SIZE:
+            raise HTTPException(status_code=413, detail=f"文件内容过大（{content_size / 1024:.1f}KB），最大支持 {MAX_FILE_CONTENT_SIZE / 1024:.0f}KB")
+        
         base_path = get_session_path(x_session_id)
         setup_git_context(x_session_id)
         full_path = validate_file_path(request.path, base_path=base_path)

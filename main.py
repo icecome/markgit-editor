@@ -1,4 +1,5 @@
 import os
+import traceback
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -10,7 +11,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger
+from app.config import ALLOWED_ORIGINS, BLOG_CACHE_PATH, POSTS_PATH, logger, is_production
 from app.routes import router
 from app.cleanup_service import cleanup_service
 from app.auth.routes import router as auth_router
@@ -19,17 +20,36 @@ from app.version import __version__
 from app.auth.rate_limiter import check_rate_limit, check_request_body_size
 
 class CSRFMiddleware(BaseHTTPMiddleware):
+    """增强的 CSRF 保护中间件"""
+    
+    # 敏感操作路径（需要严格的 CSRF 检查）
+    SENSITIVE_PATHS = [
+        '/api/file/', '/api/folder/', '/api/git-repo', '/api/init',
+        '/api/pull', '/api/commit', '/api/reset', '/api/redeploy',
+        '/api/post/', '/api/session/'
+    ]
+    
+    # 跳过 CSRF 检查的路径
+    SKIP_PATHS = ['/api/auth/', '/api/health', '/api/session/create', '/api/session/user-id']
+    
     async def dispatch(self, request: Request, call_next):
-        # OAuth 相关路径跳过 CSRF 检查
-        if request.url.path.startswith('/api/auth/'):
-            return await call_next(request)
+        path = request.url.path
+        
+        # 跳过不需要 CSRF 检查的路径
+        for skip_path in self.SKIP_PATHS:
+            if path.startswith(skip_path):
+                return await call_next(request)
         
         if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
             origin = request.headers.get("origin", "")
             referer = request.headers.get("referer", "")
             host = request.headers.get("host", "")
+            x_requested_with = request.headers.get("x-requested-with", "")
             
             allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
+            
+            # 检查是否是 AJAX 请求（带有 X-Requested-With 头）
+            is_ajax = x_requested_with.lower() == 'xmlhttprequest'
             
             # 自动允许同源请求（Origin 或 Referer 与 Host 相同）
             if origin and host:
@@ -37,8 +57,21 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 if origin_host == host:
                     return await call_next(request)
             
-            # 如果没有 origin 和 referer，允许请求通过（可能是直接 API 调用）
+            # 检查是否是敏感操作
+            is_sensitive = any(path.startswith(sp) for sp in self.SENSITIVE_PATHS)
+            
+            # 对于敏感操作，要求必须有有效的 origin 或 referer
+            if is_sensitive and not origin and not referer:
+                logger.warning(f"CSRF 保护：敏感操作缺少 Origin/Referer 头，路径：{path}")
+                raise HTTPException(status_code=403, detail="CSRF validation failed: Missing origin/referer for sensitive operation")
+            
+            # 如果没有 origin 和 referer，检查是否是 AJAX 请求
             if not origin and not referer:
+                if is_ajax:
+                    # AJAX 请求允许通过（前端需要确保设置 X-Requested-With 头）
+                    return await call_next(request)
+                # 非 AJAX 请求且无 origin/referer，记录警告但允许通过（兼容性考虑）
+                logger.debug(f"CSRF 保护：非 AJAX 请求缺少 Origin/Referer 头，路径：{path}")
                 return await call_next(request)
             
             if origin:
@@ -90,18 +123,49 @@ class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
         
         return await call_next(request)
 
+
 app = FastAPI(
     title="MarkGit Editor API", 
     version=__version__,
     description="一款基于 OAuth 2.0 的现代化 Git 博客在线编辑器"
 )
 
+API_VERSION = "v1"
+
 # 初始化速率限制器
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
+app.state.api_version = API_VERSION
 
 # 注册速率限制异常处理器
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# 注册全局异常处理器
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器 - 防止敏感信息泄露"""
+    error_id = id(exc)
+    
+    if isinstance(exc, HTTPException):
+        logger.warning(f"HTTP异常 [{error_id}]: {exc.status_code} - {exc.detail}")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.status_code, "message": str(exc.detail), "data": None}
+        )
+    
+    logger.error(f"未处理异常 [{error_id}]: {type(exc).__name__}: {str(exc)}")
+    logger.debug(f"异常堆栈 [{error_id}]:\n{traceback.format_exc()}")
+    
+    if is_production:
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": "服务器内部错误，请稍后重试", "data": None}
+        )
+    else:
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": f"{type(exc).__name__}: {str(exc)}", "data": None}
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,9 +181,13 @@ app.add_middleware(RequestBodySizeLimitMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# 先注册 OAuth 路由（优先级更高，避免被通配符路由拦截）
-app.include_router(auth_router, prefix="/api")  # OAuth 认证路由
-app.include_router(router, prefix="/api")  # 主路由（包含通配符）
+# API 路由注册（保持向后兼容）
+# 新版本 API：/api/v1/xxx
+# 旧版本 API：/api/xxx（保持兼容）
+app.include_router(auth_router, prefix="/api")  # OAuth 认证路由（旧版兼容）
+app.include_router(router, prefix="/api")  # 主路由（旧版兼容）
+app.include_router(auth_router, prefix=f"/api/{API_VERSION}")  # OAuth 认证路由（新版）
+app.include_router(router, prefix=f"/api/{API_VERSION}")  # 主路由（新版）
 
 @app.get("/")
 def root():

@@ -8,7 +8,9 @@ services:
     ports:
       - "13131:13131"
     environment:
+      - PRODUCTION=true
       - PORT=13131
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:13131}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - REDIS_URL=redis://redis:6379/0
@@ -16,14 +18,14 @@ services:
       - markgit-cache:/markgit-editor/blog_cache
     depends_on:
       - redis
-    restart: always
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: markgit-redis
     volumes:
       - redis-data:/data
-    restart: always
+    restart: unless-stopped
 
 volumes:
   markgit-cache:

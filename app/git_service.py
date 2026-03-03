@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import app.config as config
 from app.auth.token_store import token_store
 from app.context_manager import get_current_cache_path, setup_git_context, get_session_path
+from app.config import SSL_VERIFY
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,10 @@ def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[st
     if 'env' not in kwargs:
         kwargs['env'] = env
     
+    # 添加默认超时配置
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = config.GIT_CLONE_TIMEOUT if is_clone else config.GIT_OPERATION_TIMEOUT
+    
     return subprocess.run(args, **kwargs)
 
 def get_oauth_token(session_id: str) -> Optional[str]:
@@ -164,6 +169,7 @@ def get_oauth_token(session_id: str) -> Optional[str]:
     return token_info.get("access_token")
 
 def sanitize_for_log(text: str) -> str:
+    """对日志输出进行脱敏处理"""
     if not text:
         return ''
     if '@' in text and '.' in text:
@@ -181,29 +187,6 @@ def sanitize_for_log(text: str) -> str:
     if len(text) > 20:
         return text[:10] + '***' + text[-5:]
     return '***'
-
-def get_git_env(session_id: Optional[str] = None) -> dict:
-    """获取 Git 环境变量，支持 OAuth 令牌"""
-    env = os.environ.copy()
-    git_repo = config.BLOG_GIT_SSH
-    
-    # 检查是否有 OAuth 令牌
-    oauth_token = get_oauth_token(session_id) if session_id else None
-    
-    if oauth_token:
-        # 使用 OAuth 令牌进行 HTTPS 认证
-        logger.info("使用 OAuth 令牌进行 Git 认证")
-        # 设置临时环境变量用于 Git 操作
-        env['MARKGIT_OAUTH_TOKEN'] = oauth_token
-    elif git_repo and (git_repo.startswith('git@') or git_repo.startswith('ssh://')):
-        # 使用 SSH 认证
-        ssh_options = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=30'
-        if config.GIT_SSH_KEY_PATH and os.path.exists(config.GIT_SSH_KEY_PATH):
-            env['GIT_SSH_COMMAND'] = f'ssh -i {config.GIT_SSH_KEY_PATH} {ssh_options}'
-        else:
-            env['GIT_SSH_COMMAND'] = f'ssh {ssh_options}'
-    
-    return env
 
 def ensure_git_remote_config(git_repo: str = None, cache_path: str = None, oauth_session_id: Optional[str] = None):
     """确保 Git 远程仓库配置正确
@@ -305,17 +288,15 @@ def configure_git_user(session_id: Optional[str] = None, cache_path: Optional[st
         return
     
     try:
-        # 使用同步 HTTP 客户端获取 GitHub 用户信息
         import httpx
-        with httpx.Client(verify=False) as client:
+        with httpx.Client(verify=SSL_VERIFY, timeout=10.0) as client:
             response = client.get(
                 "https://api.github.com/user",
                 headers={
                     "Authorization": f"token {token_info['access_token']}",
                     "Accept": "application/json",
                     "User-Agent": "MarkGit-Editor"
-                },
-                timeout=10.0
+                }
             )
             
             if response.status_code == 200:
