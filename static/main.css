@@ -188,6 +188,11 @@ body {
     letter-spacing: -0.01em;
 }
 
+.btn i, .btn svg {
+    pointer-events: none;
+    flex-shrink: 0;
+}
+
 .btn-primary { 
     background: var(--accent-color); 
     color: white;
@@ -843,6 +848,22 @@ body {
 
 .form-input::placeholder {
     color: var(--text-tertiary);
+}
+
+.form-input.input-error {
+    border-color: var(--error-color, #ef4444);
+}
+
+.form-input.input-error:focus {
+    border-color: var(--error-color, #ef4444);
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15);
+}
+
+.form-hint-error {
+    color: var(--error-color, #ef4444) !important;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .form-textarea { 

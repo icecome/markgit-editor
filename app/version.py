@@ -5,12 +5,21 @@ MarkGit Editor 版本管理
 版本号遵循语义化版本规范 (SemVer): https://semver.org/
 """
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 __author__ = "MarkGit Editor Team"
 __license__ = "MIT"
 
 VERSION_HISTORY = """
 # MarkGit Editor 版本历史
+
+## v1.0.2 (2026-03-03) - 用户体验优化版
+
+### 修复
+- 修复按钮图标点击无响应的问题（添加 pointer-events: none）
+- 修复 Git 仓库输入框 placeholder 溢出问题
+- 添加 Git 仓库地址格式验证功能
+
+---
 
 ## v1.0.1 (2026-03-03) - 紧急修复版
 

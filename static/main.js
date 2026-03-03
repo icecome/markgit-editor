@@ -347,7 +347,23 @@ if (typeof Vue !== 'undefined') {
                 }
             },
             
+            isValidGitRepo(url) {
+                if (!url || url.trim() === '') return true;
+                
+                url = url.trim();
+                
+                const httpsGitPattern = /^https?:\/\/[\w\-]+(\.[\w\-]+)+\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+\.git$/i;
+                const httpsPattern = /^https?:\/\/[\w\-]+(\.[\w\-]+)+\/[\w\-]+\/[\w\-._~]+$/i;
+                const sshPattern = /^git@[\w\-]+(\.[\w\-]+)+:[\w\-]+\/[\w\-._~]+(\.git)?$/i;
+                
+                return httpsGitPattern.test(url) || httpsPattern.test(url) || sshPattern.test(url);
+            },
+            
             saveRepoConfig() {
+                if (this.gitRepo && !this.isValidGitRepo(this.gitRepo)) {
+                    this.showToast('请输入有效的 Git 仓库地址', 'error');
+                    return;
+                }
                 axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() })
                     .then(response => { 
                         this.showToast('仓库配置已保存', 'success'); 
