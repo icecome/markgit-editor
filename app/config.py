@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
-# 加载 .env 文件
-load_dotenv()
+# 加载 .env 文件（指定 UTF-8 编码以支持中文注释）
+load_dotenv(encoding='utf-8')
 
 # 基础路径配置
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -20,71 +20,64 @@ from app.version import __version__
 from app.auth.rate_limiter import check_rate_limit, check_request_body_size
 
 class CSRFMiddleware(BaseHTTPMiddleware):
-    """增强的 CSRF 保护中间件"""
+    """CSRF 保护中间件 - 简化版本，只检查敏感的 POST 请求"""
     
-    # 敏感操作路径（需要严格的 CSRF 检查）
-    SENSITIVE_PATHS = [
-        '/api/file/', '/api/folder/', '/api/git-repo', '/api/init',
-        '/api/pull', '/api/commit', '/api/reset', '/api/redeploy',
-        '/api/post/', '/api/session/'
+    # 需要严格 CSRF 检查的敏感操作
+    STRICT_CSRF_PATHS = [
+        '/api/git-repo', '/api/init', '/api/pull', '/api/commit', 
+        '/api/reset', '/api/redeploy', '/api/auth/logout'
     ]
     
-    # 跳过 CSRF 检查的路径
-    SKIP_PATHS = ['/api/auth/', '/api/health', '/api/session/create', '/api/session/user-id']
-    
     async def dispatch(self, request: Request, call_next):
+        # 只对 POST/PUT/DELETE/PATCH 请求进行 CSRF 检查
+        if request.method not in ["POST", "PUT", "DELETE", "PATCH"]:
+            return await call_next(request)
+        
         path = request.url.path
         
-        # 跳过不需要 CSRF 检查的路径
-        for skip_path in self.SKIP_PATHS:
-            if path.startswith(skip_path):
+        # 检查是否是需要严格 CSRF 检查的路径
+        needs_strict_csrf = any(path == sp or path.startswith(sp + '/') for sp in self.STRICT_CSRF_PATHS)
+        
+        if not needs_strict_csrf:
+            # 非敏感操作，直接通过
+            return await call_next(request)
+        
+        # 敏感操作：检查 Origin 或 Referer
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+        host = request.headers.get("host", "")
+        x_requested_with = request.headers.get("x-requested-with", "")
+        
+        allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
+        
+        # AJAX 请求允许通过
+        if x_requested_with.lower() == 'xmlhttprequest':
+            return await call_next(request)
+        
+        # 同源请求允许通过
+        if origin and host:
+            origin_host = origin.replace("https://", "").replace("http://", "").split("/")[0]
+            if origin_host == host:
                 return await call_next(request)
         
-        if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
-            origin = request.headers.get("origin", "")
-            referer = request.headers.get("referer", "")
-            host = request.headers.get("host", "")
-            x_requested_with = request.headers.get("x-requested-with", "")
-            
-            allowed_origins = ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["http://localhost:13131"]
-            
-            # 检查是否是 AJAX 请求（带有 X-Requested-With 头）
-            is_ajax = x_requested_with.lower() == 'xmlhttprequest'
-            
-            # 自动允许同源请求（Origin 或 Referer 与 Host 相同）
-            if origin and host:
-                origin_host = origin.replace("https://", "").replace("http://", "").split("/")[0]
-                if origin_host == host:
-                    return await call_next(request)
-            
-            # 检查是否是敏感操作
-            is_sensitive = any(path.startswith(sp) for sp in self.SENSITIVE_PATHS)
-            
-            # 对于敏感操作，要求必须有有效的 origin 或 referer
-            if is_sensitive and not origin and not referer:
-                logger.warning(f"CSRF 保护：敏感操作缺少 Origin/Referer 头，路径：{path}")
-                raise HTTPException(status_code=403, detail="CSRF validation failed: Missing origin/referer for sensitive operation")
-            
-            # 如果没有 origin 和 referer，检查是否是 AJAX 请求
-            if not origin and not referer:
-                if is_ajax:
-                    # AJAX 请求允许通过（前端需要确保设置 X-Requested-With 头）
-                    return await call_next(request)
-                # 非 AJAX 请求且无 origin/referer，记录警告但允许通过（兼容性考虑）
-                logger.debug(f"CSRF 保护：非 AJAX 请求缺少 Origin/Referer 头，路径：{path}")
+        # 检查 Origin 是否在允许列表中
+        if origin:
+            if origin in allowed_origins:
                 return await call_next(request)
-            
-            if origin:
-                if origin not in allowed_origins:
-                    logger.warning(f"CSRF 保护：拒绝来自未知 Origin 的请求：{origin}")
-                    raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid origin")
-            elif referer:
-                referer_valid = any(referer.startswith(origin) for origin in allowed_origins)
-                if not referer_valid:
-                    logger.warning(f"CSRF 保护：拒绝来自未知 Referer 的请求：{referer}")
-                    raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid referer")
+            logger.warning(f"CSRF 保护：拒绝来自未知 Origin 的请求：{origin}")
+            raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid origin")
         
-        return await call_next(request)
+        # 检查 Referer 是否在允许列表中
+        if referer:
+            referer_valid = any(referer.startswith(allowed_origin) for allowed_origin in allowed_origins)
+            if referer_valid:
+                return await call_next(request)
+            logger.warning(f"CSRF 保护：拒绝来自未知 Referer 的请求：{referer}")
+            raise HTTPException(status_code=403, detail="CSRF validation failed: Invalid referer")
+        
+        # 敏感操作必须有 Origin 或 Referer
+        logger.warning(f"CSRF 保护：敏感操作缺少 Origin/Referer 头，路径：{path}")
+        raise HTTPException(status_code=403, detail="CSRF validation failed: Missing origin/referer")
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """添加安全响应头"""
@@ -133,7 +126,10 @@ app = FastAPI(
 API_VERSION = "v1"
 
 # 初始化速率限制器
-limiter = Limiter(key_func=get_remote_address)
+# 注意：设置 config_filename="" 禁用自动读取 .env 文件
+# 因为我们已经通过 load_dotenv(encoding='utf-8') 加载了配置
+# 这样可以避免 starlette.config.Config 使用默认编码读取 .env 文件导致的编码问题
+limiter = Limiter(key_func=get_remote_address, config_filename="")
 app.state.limiter = limiter
 app.state.api_version = API_VERSION
 

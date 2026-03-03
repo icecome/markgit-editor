@@ -66,7 +66,9 @@ class OAuthComponent {
         
         try {
             console.log('Requesting device code from server...');
-            const response = await axios.get('/api/auth/device-code');
+            const response = await axios.get('/api/auth/device-code', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
             const deviceCode = response.data;
             
             deviceCode.expires_at = Date.now() + (deviceCode.expires_in * 1000);
@@ -264,7 +266,8 @@ class OAuthComponent {
                     grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
                 }, {
                     headers: { 
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
                     }
                 });
                 
@@ -349,7 +352,8 @@ class OAuthComponent {
         try {
             const response = await axios.get('/api/auth/status', {
                 headers: { 
-                    'X-Session-ID': this.oauthSessionId 
+                    'X-Session-ID': this.oauthSessionId,
+                    'X-Requested-With': 'XMLHttpRequest'
                 }
             });
             
@@ -380,7 +384,10 @@ class OAuthComponent {
     async logout() {
         try {
             await axios.post('/api/auth/logout', {}, {
-                headers: { 'X-Session-ID': this.oauthSessionId }
+                headers: { 
+                    'X-Session-ID': this.oauthSessionId,
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             });
             
             this.oauthSessionId = '';

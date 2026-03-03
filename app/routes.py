@@ -14,14 +14,8 @@ from defusedxml import ElementTree as ET
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-# 兼容 Windows 和 Linux 环境的 magic 库导入
-try:
-    import magic
-    MAGIC_AVAILABLE = True
-except (ImportError, OSError, AttributeError):
-    magic = None
-    MAGIC_AVAILABLE = False
-    print("Warning: python-magic not available, file type validation will use file extension only")
+import filetype
+FILETYPE_AVAILABLE = True
 
 from app.config import POSTS_PATH, BLOG_GIT_SSH, BLOG_CACHE_PATH, DEFAULT_WHITELIST_EXTENSIONS, logger, MAX_FILE_CONTENT_SIZE
 from app.models import ApiResponse
@@ -239,14 +233,14 @@ def sanitize_image(content: bytes, filename: str) -> tuple[bool, bytes]:
         return False, content
 
 def validate_mime_type(content: bytes, filename: str) -> bool:
-    """验证 MIME 类型是否与扩展名匹配（可选增强）"""
-    if not MAGIC_AVAILABLE or magic is None:
-        # magic 库不可用时，只验证文件扩展名
-        logger.debug(f"MIME 类型验证跳过（magic 库不可用）：{filename}")
-        return True
-    
+    """验证 MIME 类型是否与扩展名匹配（使用 filetype 库）"""
     try:
-        mime = magic.from_buffer(content, mime=True)
+        kind = filetype.guess(content)
+        if kind is None:
+            logger.debug(f"无法识别文件类型：{filename}，使用扩展名验证")
+            return True
+        
+        mime = kind.mime
         
         mime_to_ext = {
             'image/jpeg': {'.jpg', '.jpeg'},
@@ -254,20 +248,10 @@ def validate_mime_type(content: bytes, filename: str) -> bool:
             'image/gif': {'.gif'},
             'image/webp': {'.webp'},
             'image/bmp': {'.bmp'},
-            'image/x-icon': {'.ico'},
-            'image/svg+xml': {'.svg'},
-            'text/plain': {'.txt', '.md', '.markdown'},
-            'application/json': {'.json'},
-            'text/yaml': {'.yaml', '.yml'},
-            'application/x-toml': {'.toml'},
         }
         
         ext = os.path.splitext(filename)[1].lower()
         allowed_exts = mime_to_ext.get(mime, set())
-        
-        # 特殊处理：某些文本文件可能被识别为 text/plain
-        if mime == 'text/plain' and ext in {'.md', '.markdown', '.txt'}:
-            return True
         
         if ext not in allowed_exts:
             logger.warning(f"MIME 类型不匹配：{mime}, 扩展名：{ext}")
@@ -276,7 +260,6 @@ def validate_mime_type(content: bytes, filename: str) -> bool:
         return True
     except Exception as e:
         logger.warning(f"MIME 类型验证失败：{e}")
-        # MIME 验证失败不影响上传，只记录日志
         return True
 
 def validate_file_content(content: bytes, filename: str) -> bool:
