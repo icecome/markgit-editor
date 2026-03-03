@@ -5,12 +5,23 @@ MarkGit Editor 版本管理
 版本号遵循语义化版本规范 (SemVer): https://semver.org/
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "MarkGit Editor Team"
 __license__ = "MIT"
 
 VERSION_HISTORY = """
 # MarkGit Editor 版本历史
+
+## v1.0.1 (2026-03-03) - 紧急修复版
+
+### 修复
+- 修复 SRI hash 占位符导致 CDN 脚本无法加载的问题
+- 修复 CSRF 中间件过于严格导致请求被阻止的问题
+- 修复 .env 文件中文注释编码问题
+- 修复 slowapi Limiter 读取 .env 文件的编码问题
+- 添加静态资源缓存破坏机制
+
+---
 
 ## v1.0.0 (2026-03-03) - 正式发布版
 

@@ -13,7 +13,7 @@
     <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/main.css">
+    <link rel="stylesheet" href="/static/main.css?v=1.0.1">
     <script>
     // CDN 降级机制
     (function() {
@@ -29,7 +29,7 @@
             if (e.target && e.target.tagName === 'SCRIPT') {
                 var src = e.target.src;
                 if (src && cdnFallback[src]) {
-                    console.warn('CDN 加载失败，切换到备用源:', src);
+                    console.warn('CDN 加载失败，切换到备用源：', src);
                     var script = document.createElement('script');
                     script.src = cdnFallback[src];
                     script.async = false;
@@ -759,7 +759,7 @@
     
 </div>
 
-<script src="/static/oauth-component.js"></script>
-  <script src="/static/main.js"></script>
+<script src="/static/oauth-component.js?v=1.0.1"></script>
+  <script src="/static/main.js?v=1.0.1"></script>
 </body>
 </html>
