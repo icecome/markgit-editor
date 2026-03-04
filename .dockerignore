@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cache and logs
+blog_cache/
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime files
+pid
+*.tmp
+*.bak
+
+# Documentation (keep README)
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+.pytest_cache/
+.tox/
+htmlcov/

@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 环境配置（包含敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 运行时生成的文件
+pid
+*.log
+logs/
+
+# 缓存和数据目录
+blog_cache/
+.cache/
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 测试和覆盖率
+.pytest_cache/
+.tox/
+htmlcov/
+.coverage
+
+# 备份文件
+.history/
+*.bak
+*.tmp
+
+# 虚拟环境
+venv/
+env/
+.venv/

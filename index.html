@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MarkGit Editor</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%232196f3;stop-opacity:1'/%3E%3Cstop offset='100%25' style='stop-color:%231976d2;stop-opacity:1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23grad)'/%3E%3Cg fill='white'%3E%3Ccircle cx='16' cy='8' r='3'/%3E%3Ccircle cx='10' cy='22' r='3'/%3E%3Ccircle cx='22' cy='22' r='3'/%3E%3Cpath d='M16 11v5a3 3 0 0 1-3 3H11' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3Cpath d='M16 16a3 3 0 0 0 3 3h2' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E" type="image/svg+xml">
+    <script src="https://cdn.tailwindcss.com/3.4.1" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/lucide@0.344.0" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://unpkg.com/vditor@3.10.4/dist/index.css" crossorigin="anonymous">
+    <script src="https://unpkg.com/vditor@3.10.4/dist/index.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/main.css?v=1.0.2">
+    <script>
+    // CDN 降级机制
+    (function() {
+        var cdnFallback = {
+            'https://cdn.tailwindcss.com/3.4.1': 'https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/lib/index.min.js',
+            'https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js': 'https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js',
+            'https://unpkg.com/vditor@3.10.4/dist/index.min.js': 'https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.min.js',
+            'https://unpkg.com/axios@1.6.7/dist/axios.min.js': 'https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js',
+            'https://unpkg.com/dompurify@3.0.8/dist/purify.min.js': 'https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js'
+        };
+        
+        window.addEventListener('error', function(e) {
+            if (e.target && e.target.tagName === 'SCRIPT') {
+                var src = e.target.src;
+                if (src && cdnFallback[src]) {
+                    console.warn('CDN 加载失败，切换到备用源：', src);
+                    var script = document.createElement('script');
+                    script.src = cdnFallback[src];
+                    script.async = false;
+                    document.head.appendChild(script);
+                }
+            }
+        }, true);
+    })();
+    </script>
+    <style>
+        .settings-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .settings-panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .settings-panel-content::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+        .settings-panel-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+        .settings-panel-content::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-color);
+        }
+        
+        .side-panel-footer-fixed {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        
+        .section-subtitle {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 12px 0 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .pattern-templates {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .pattern-template {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 80px;
+            flex: 0 0 auto;
+        }
+        .pattern-template:hover {
+            border-color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.05);
+        }
+        .pattern-template code {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 5px;
+            border-radius: 3px;
+            align-self: flex-start;
+        }
+        .pattern-template span {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            white-space: nowrap;
+        }
+        
+        .regex-help {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+        }
+        .help-item {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            line-height: 1.4;
+        }
+        .help-item:last-child {
+            margin-bottom: 0;
+        }
+        .help-item code {
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            color: var(--accent-color);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 1px 4px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        
+        /* 表单优化 */
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            display: block;
+        }
+        .form-textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        
+        .section-divider {
+            border-top: 1px solid var(--border-color);
+            margin: 12px 0;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <nav class="navbar">
+        <div class="navbar-content">
+            <div style="display: flex; align-items: center;">
+                <button class="mobile-menu-toggle" @click="toggleSidebar" title="菜单" style="display: none;">
+                    <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
+                </button>
+                <div class="logo">
+                    <div class="logo-icon">
+                        <i data-lucide="edit-3" style="width: 18px; height: 18px;"></i>
+                    </div>
+                    <span>MarkGit Editor</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <button class="btn btn-success" @click="showChangesPanel()" title="提交变更">
+                    <i data-lucide="git-commit" style="width: 14px; height: 14px;"></i>
+                    <span>提交</span>
+                </button>
+                <button class="btn btn-ghost" @click="initWorkspace()" title="初始化仓库（自动克隆远程仓库）">
+                    <i data-lucide="git-branch-plus" style="width: 14px; height: 14px;"></i>
+                    <span>初始化</span>
+                </button>
+                <button class="btn btn-ghost" @click="pullRepo()" title="拉取更新">
+                    <i data-lucide="git-pull-request" style="width: 14px; height: 14px;"></i>
+                    <span>拉取</span>
+                </button>
+                <div id="oauth-container" style="display: inline-flex; align-items: center;"></div>
+                
+                <button class="btn btn-ghost" @click="showThemePanel()" title="主题设置">
+                    <i data-lucide="palette" style="width: 14px; height: 14px;"></i>
+                </button>
+                <button class="btn btn-ghost" @click="showConfigPanel()" title="设置">
+                    <i data-lucide="settings" style="width: 14px; height: 14px;"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <div class="sidebar" :class="{ 'collapsed': sidebarCollapsed, 'open-mobile': showMobileOverlay }">
+            <div class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开文件浏览器">
+                <i data-lucide="chevron-left" style="width: 14px; height: 14px; display: inline-block;" v-show="!sidebarCollapsed"></i>
+                <i data-lucide="chevron-right" style="width: 14px; height: 14px; display: inline-block;" v-show="sidebarCollapsed"></i>
+            </div>
+            <div class="sidebar-header">
+                <div class="sidebar-title">文件浏览器</div>
+                <div class="sidebar-actions" style="display: flex; flex-direction: column; gap: 8px;">
+                    <button class="btn btn-sm btn-secondary" @click="showNewFolderPanel()" title="在当前目录新建文件夹" style="width: 100%; justify-content: center;">
+                        <i data-lucide="folder-plus" style="width: 12px; height: 12px;"></i>
+                        <span>新建文件夹</span>
+                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-sm btn-secondary" @click="showNewFilePanel()" title="在当前目录新建文件" style="flex: 1 1 50%; justify-content: center; min-width: 0; padding: 4px 8px; line-height: 1.2;">
+                            <i data-lucide="file-plus" style="width: 14px; height: 12px;"></i>
+                            <span>新建文件</span>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @click="showUploadPanel()" title="上传文件" style="flex: 1 1 50%; justify-content: center; min-width: 0; padding: 4px 8px; line-height: 1.2;">
+                            <i data-lucide="upload" style="width: 14px; height: 12px;"></i>
+                            <span>上传</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="current-path-indicator" style="margin: 12px;">
+                <i data-lucide="folder" style="width: 12px; height: 12px; display: inline; vertical-align: middle;"></i>
+                当前目录：{{ currentDirectory || '根目录' }}
+            </div>
+
+            <div class="sidebar-content">
+                <div v-if="loading" class="loading">
+                    <div class="loading-container">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">{{ loadingText || '正在加载文件...' }}</div>
+                    </div>
+                </div>
+                <div v-else-if="fileTree.length === 0" class="empty-state">
+                    <i data-lucide="folder-open" style="width: 32px; height: 32px;"></i>
+                    <p>仓库为空</p>
+                </div>
+                <div v-else class="file-tree">
+                    <tree-node
+                        v-for="node in fileTree"
+                        :key="node.path"
+                        :node="node"
+                        :level="0"
+                        :expanded-paths="expandedPaths"
+                        :selected-path="selectedFile ? selectedFile.path : ''"
+                        :editing-path="editingFilePath"
+                        :current-directory="currentDirectory"
+                        @toggle="toggleExpand"
+                        @select="selectFile"
+                        @select-directory="selectDirectory"
+                        @rename="showRenamePanel"
+                        @delete="deleteFile"
+                        @move="showMovePanel"
+                        @contextmenu="showContextMenu"
+                        @newfile="showNewFilePanelAt"
+                        @newfolder="showNewFolderPanelAt"
+                    ></tree-node>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div style="font-size: 12px; color: #9ca3af;">
+                    <i data-lucide="git-branch" style="width: 12px; height: 12px; display: inline; vertical-align: middle;"></i>
+                    <span v-if="gitRepo">{{ gitRepo.split('/').pop().replace('.git', '') }}</span>
+                    <span v-else>未配置</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content" :class="{ 'expanded': sidebarCollapsed }">
+            <div class="content-area">
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-icon blue">
+                            <i data-lucide="file-text" style="width: 24px; height: 24px;"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>{{ fileCount }}</h3>
+                            <p>文件总数</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green">
+                            <i data-lucide="folder" style="width: 24px; height: 24px;"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>{{ folderCount }}</h3>
+                            <p>文件夹</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon purple">
+                            <i data-lucide="git-commit" style="width: 24px; height: 24px;"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>{{ changes.length }}</h3>
+                            <p>待提交</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="editor-container">
+                    <div v-if="!editingFilePath" class="empty-state">
+                        <i data-lucide="file-text" style="width: 48px; height: 48px;"></i>
+                        <h3>选择文件开始编辑</h3>
+                        <p>从左侧文件浏览器中选择一个文件</p>
+                    </div>
+                    <template v-else>
+                        <div class="editor-header">
+                            <div class="editor-file-info">
+                                <i data-lucide="file-text" style="width: 16px; height: 16px; color: #3b82f6;"></i>
+                                <span class="editor-file-path">{{ editingFilePath }}</span>
+                                <span v-if="hasUnsavedChanges" class="unsaved-indicator">● 未保存</span>
+                            </div>
+                            <button class="btn btn-sm btn-success" @click="saveFile()" :disabled="saving">
+                                <i data-lucide="save" style="width: 12px; height: 12px;"></i>
+                                <span>{{ saving ? '保存中...' : '保存' }}</span>
+                            </button>
+                        </div>
+                        <div class="editor-content">
+                            <div id="vditor"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" :class="{ 'overlay-mobile-visible': showMobileOverlay }" v-show="panelOpen || showMobileOverlay" @click="handleOverlayClick"></div>
+
+    <div class="side-panel" :class="{ 'open': panelOpen }">
+        <div class="side-panel-header">
+            <span class="side-panel-title">{{ panelTitle }}</span>
+            <span class="side-panel-close" @click="closePanel">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+            </span>
+        </div>
+        <div class="side-panel-content">
+            <div v-if="panelType === 'newfile'">
+                <div class="form-group">
+                    <label class="form-label">文件名</label>
+                    <input type="text" class="form-input" v-model="newFileName" placeholder="例如: my-post.md" @keyup.enter="createFile">
+                    <p class="form-hint">将创建在：{{ currentDirectory || '根目录' }}</p>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">文件内容（可选）</label>
+                    <textarea class="form-textarea" v-model="newFileContent" placeholder="输入文件内容..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="createFile">创建文件</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'newfolder'">
+                <div class="form-group">
+                    <label class="form-label">文件夹名</label>
+                    <input type="text" class="form-input" v-model="newFolderName" placeholder="例如：my-folder" @keyup.enter="createFolder">
+                    <p class="form-hint">将创建在：{{ currentDirectory || '根目录' }}</p>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="createFolder">创建文件夹</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'upload'">
+                <div class="form-group">
+                    <label class="form-label">选择要上传的文件</label>
+                    <input type="file" class="form-input" @change="handleFileSelect" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.ico,.md,.markdown,.txt,.json,.yaml,.yml,.toml">
+                    <p class="form-hint">
+                        📷 图片：JPG, PNG, GIF, WebP, BMP, ICO<br>
+                        📄 文档：MD, TXT<br>
+                        ⚙️ 配置：JSON, YAML, TOML<br>
+                        最大文件大小：2MB
+                    </p>
+                </div>
+                <div class="form-group" v-if="selectedFileForUpload">
+                    <label class="form-label">文件名</label>
+                    <input type="text" class="form-input" v-model="uploadFileName" placeholder="输入新文件名（可选）">
+                    <p class="form-hint">
+                        原始文件名：{{ selectedFileForUpload.name }}<br>
+                        文件大小：{{ formatFileSize(selectedFileForUpload.size) }}
+                    </p>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="uploadFile" :disabled="!selectedFileForUpload">上传文件</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'rename'">
+                <div class="form-group">
+                    <label class="form-label">新名称</label>
+                    <input type="text" class="form-input" v-model="renameNewName" @keyup.enter="renameFile">
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="renameFile">确认重命名</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'move'">
+                <div class="form-group">
+                    <label class="form-label">目标路径</label>
+                    <input type="text" class="form-input" v-model="moveDestPath">
+                    <p class="form-hint">原路径：{{ moveSourcePath }}</p>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" @click="closePanel">取消</button>
+                    <button class="btn btn-primary" @click="moveFile">确认移动</button>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'config'" class="settings-panel-content" style="padding-bottom: 80px;">
+                <div class="section-title">
+                    <i data-lucide="git-branch" style="width: 16px; height: 16px;"></i>
+                    Git 仓库配置
+                </div>
+                <div class="form-group">
+                    <label class="form-label">仓库地址</label>
+                    <input type="text" class="form-input" v-model="gitRepo" 
+                           :class="{'input-error': gitRepo && !isValidGitRepo(gitRepo)}"
+                           placeholder="输入 Git 仓库 HTTPS 地址">
+                    <p class="form-hint" v-if="!gitRepo || isValidGitRepo(gitRepo)">
+                        示例：https://github.com/username/repo.git
+                    </p>
+                    <p class="form-hint form-hint-error" v-else>
+                        <i data-lucide="alert-circle" style="width: 12px; height: 12px;"></i>
+                        请输入有效的 Git 仓库地址（HTTPS 或 SSH 格式）
+                    </p>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-title">
+                    <i data-lucide="file-x" style="width: 16px; height: 16px;"></i>
+                    文件显示设置
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>显示模式</span>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" v-model="useWhitelist" style="cursor: pointer;">
+                            <span style="font-size: 13px; font-weight: normal;">只显示常用文本文件</span>
+                        </label>
+                    </label>
+                    <p class="form-hint">启用后只显示 .md, .txt, .toml, .yaml, .yml, .json 等配置文件</p>
+                </div>
+                
+                <div class="form-group" v-if="useWhitelist">
+                    <label class="form-label">白名单例外（每行一个）</label>
+                    <textarea class="form-textarea" v-model="whitelistExceptions" rows="4" placeholder="src/&#10;assets/&#10;config.json&#10;package.json"></textarea>
+                    <p class="form-hint">
+                        在白名单模式下允许显示的额外目录/文件
+                        <br>示例：<code>src/</code> 显示 src 目录 | <code>config.json</code> 显示该文件
+                    </p>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-title">
+                    <i data-lucide="square-x" style="width: 16px; height: 16px;"></i>
+                    排除规则
+                </div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="type" style="width: 14px; height: 14px;"></i>
+                    简单模式（推荐）
+                </div>
+                <div class="form-group">
+                    <label class="form-label">排除后缀、文件名或目录（每行一个）</label>
+                    <textarea class="form-textarea" v-model="simplePatterns" rows="4" placeholder=".css&#10;.js&#10;.html&#10;dist/&#10;node_modules/"></textarea>
+                    <p class="form-hint">
+                        示例：<code>.css</code> 排除 CSS 文件 | <code>test.txt</code> 排除特定文件 | <code>dist/</code> 排除目录
+                    </p>
+                </div>
+                
+                <div class="pattern-templates">
+                    <div class="pattern-template" @click="addSimplePattern('.css')" title="排除 .css 文件">
+                        <code>.css</code>
+                        <span>CSS</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.js')" title="排除 .js 文件">
+                        <code>.js</code>
+                        <span>JS</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.html')" title="排除 .html 文件">
+                        <code>.html</code>
+                        <span>HTML</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.log')" title="排除 .log 文件">
+                        <code>.log</code>
+                        <span>日志</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('dist/')" title="排除 dist 目录">
+                        <code>dist/</code>
+                        <span>dist</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('node_modules/')" title="排除 node_modules 目录">
+                        <code>node_modules/</code>
+                        <span>node_modules</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('.git/')" title="排除 .git 目录">
+                        <code>.git/</code>
+                        <span>.git</span>
+                    </div>
+                    <div class="pattern-template" @click="addSimplePattern('build/')" title="排除 build 目录">
+                        <code>build/</code>
+                        <span>build</span>
+                    </div>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="square-check" style="width: 14px; height: 14px;"></i>
+                    正则表达式模式（高级）
+                </div>
+                <div class="form-group">
+                    <label class="form-label">正则表达式排除（每行一个）</label>
+                    <textarea class="form-textarea" v-model="excludePatterns" rows="4" placeholder=".*\.css$&#10;.*\.html$&#10;^temp/"></textarea>
+                    <p class="form-hint">支持正则表达式，保存后自动刷新生效</p>
+                </div>
+                
+                <div class="pattern-templates">
+                    <div class="pattern-template" @click="addPattern('.*\\.css$')" title="排除任意目录下的 .css 文件">
+                        <code>.*\.css$</code>
+                        <span>CSS</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.html$')" title="排除任意目录下的 .html 文件">
+                        <code>.*\.html$</code>
+                        <span>HTML</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.js$')" title="排除任意目录下的 .js 文件">
+                        <code>.*\.js$</code>
+                        <span>JS</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('^\\.')" title="排除隐藏文件和目录">
+                        <code>^\.</code>
+                        <span>隐藏文件</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('.*\\.log$')" title="排除日志文件">
+                        <code>.*\.log$</code>
+                        <span>日志</span>
+                    </div>
+                    <div class="pattern-template" @click="addPattern('^dist/')" title="排除 dist 目录">
+                        <code>^dist/</code>
+                        <span>dist</span>
+                    </div>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <div class="section-subtitle">
+                    <i data-lucide="circle-help" style="width: 14px; height: 14px;"></i>
+                    使用说明
+                </div>
+                <div class="regex-help">
+                    <div class="help-item">
+                        <strong>简单模式：</strong>
+                        <code>.css</code> 排除后缀 | 
+                        <code>file.txt</code> 排除文件 | 
+                        <code>dist/</code> 排除目录
+                    </div>
+                    <div class="help-item">
+                        <strong>正则表达式：</strong>
+                        <code>.*</code> 任意字符 | 
+                        <code>\.</code> 点号 | 
+                        <code>$</code> 结尾 | 
+                        <code>^</code> 开头
+                    </div>
+                    <div class="help-item">
+                        <strong>白名单：</strong> 启用后只显示 .md, .txt, .toml, .yaml, .yml, .json 等文本/配置文件
+                    </div>
+                </div>
+            </div>
+            <div v-if="panelType === 'config'" class="side-panel-footer-fixed">
+                <button class="btn btn-secondary" @click="closePanel">取消</button>
+                <button class="btn btn-primary" @click="saveAllSettings">保存全部设置</button>
+            </div>
+
+            <div v-if="panelType === 'theme'">
+                <div class="section-title">
+                    <i data-lucide="palette" style="width: 16px; height: 16px;"></i>
+                    主题颜色
+                </div>
+                <div class="color-selector">
+                    <div class="color-option" :class="{ 'active': currentColor === 'blue' }" @click="setColor('blue')">
+                        <div class="color-option-preview" style="background: #2196f3;"></div>
+                        <div class="color-option-name">蓝色</div>
+                    </div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'green' }" @click="setColor('green')">
+                        <div class="color-option-preview" style="background: #30a14e;"></div>
+                        <div class="color-option-name">绿色</div>
+                    </div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'red' }" @click="setColor('red')">
+                        <div class="color-option-preview" style="background: #dc2626;"></div>
+                        <div class="color-option-name">红色</div>
+                    </div>
+                    <div class="color-option" :class="{ 'active': currentColor === 'gold' }" @click="setColor('gold')">
+                        <div class="color-option-preview" style="background: #d4af37;"></div>
+                        <div class="color-option-name">金色</div>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="section-title">
+                    <i data-lucide="sun" style="width: 16px; height: 16px;"></i>
+                    显示模式
+                </div>
+                <div class="mode-selector">
+                    <div class="mode-option" :class="{ 'active': currentMode === 'light' }" @click="setMode('light')">
+                        <i data-lucide="sun" style="width: 14px; height: 14px;"></i>
+                        浅色模式
+                    </div>
+                    <div class="mode-option" :class="{ 'active': currentMode === 'dark' }" @click="setMode('dark')">
+                        <i data-lucide="moon" style="width: 14px; height: 14px;"></i>
+                        深色模式
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="section-title">
+                    <i data-lucide="edit-3" style="width: 16px; height: 16px;"></i>
+                    编辑器模式
+                </div>
+                <div class="editor-mode-selector">
+                    <div class="editor-mode-option" :class="{ 'active': editorMode === 'wysiwyg' }" @click="setEditorMode('wysiwyg')">
+                        <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
+                        所见即所得
+                    </div>
+                    <div class="editor-mode-option" :class="{ 'active': editorMode === 'ir' }" @click="setEditorMode('ir')">
+                        <i data-lucide="columns" style="width: 14px; height: 14px;"></i>
+                        即时渲染
+                    </div>
+                    <div class="editor-mode-option" :class="{ 'active': editorMode === 'sv' }" @click="setEditorMode('sv')">
+                        <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                        分屏预览
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="panelType === 'changes'">
+                <div v-if="changes.length === 0" class="empty-state" style="height: 200px;">
+                    <i data-lucide="check-circle" style="width: 32px; height: 32px; color: #10b981;"></i>
+                    <h3 style="color: #10b981;">没有待提交的更改</h3>
+                </div>
+                <div v-else>
+                    <ul class="changes-list">
+                        <li v-for="change in changes" :key="change">
+                            <span class="change-icon modified">
+                                <i data-lucide="edit-2" style="width: 10px; height: 10px;"></i>
+                            </span>
+                            {{ change }}
+                        </li>
+                    </ul>
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" @click="closePanel">取消</button>
+                        <button class="btn btn-success" @click="commit" :disabled="committing">
+                            <i data-lucide="git-commit" style="width: 16px; height: 16px;" v-if="!committing"></i>
+                            <i data-lucide="loader-2" style="width: 16px; height: 16px; animation: spin 1s linear infinite;" v-else></i>
+                            <span>{{ committing ? '提交中...' : '提交变更' }}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="contextMenuVisible" class="context-menu" :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }">
+        <div class="context-menu-item" @click="openFile" v-if="contextMenuFile && contextMenuFile.type === 'file'">
+            <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+            <span>打开</span>
+        </div>
+        <template v-if="contextMenuFile && contextMenuFile.type === 'directory'">
+            <div class="context-menu-item" @click="selectDirectory(contextMenuFile.path)">
+                <i data-lucide="folder-open" style="width: 14px; height: 14px;"></i>
+                <span>设为当前目录</span>
+            </div>
+            <div class="context-menu-item" @click="newFileAtContext">
+                <i data-lucide="file-plus" style="width: 14px; height: 14px;"></i>
+                <span>新建文件</span>
+            </div>
+            <div class="context-menu-item" @click="newFolderAtContext">
+                <i data-lucide="folder-plus" style="width: 14px; height: 14px;"></i>
+                <span>新建文件夹</span>
+            </div>
+        </template>
+        <div class="context-menu-item" @click="renameContext">
+            <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+            <span>重命名</span>
+        </div>
+        <div class="context-menu-item" @click="moveContext">
+            <i data-lucide="move" style="width: 14px; height: 14px;"></i>
+            <span>移动</span>
+        </div>
+        <div class="context-menu-item danger" @click="deleteContext">
+            <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+            <span>删除</span>
+        </div>
+    </div>
+
+    <div class="toast" :class="[toastType, { 'show': toastVisible }]" v-cloak>
+        <i :data-lucide="toastIcon" style="width: 16px; height: 16px;"></i>
+        <span>{{ toastMessage }}</span>
+    </div>
+
+    <div v-if="modalVisible" class="modal-overlay" @click.self="cancelModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-icon" :class="modalType">
+                    <i :data-lucide="modalIcon" style="width: 20px; height: 20px;"></i>
+                </div>
+                <span class="modal-title">{{ modalTitle }}</span>
+            </div>
+            <div class="modal-body">
+                <p class="modal-message">{{ modalMessage }}</p>
+                <div v-if="modalDetails && modalDetails.length" class="modal-details">
+                    <ul>
+                        <li v-for="detail in modalDetails" :key="detail">{{ detail }}</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="cancelModal">取消</button>
+                <button class="btn" :class="modalConfirmClass" @click="confirmModal">确认</button>
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+<script src="/static/oauth-component.js?v=1.0.2"></script>
+  <script src="/static/main.js?v=1.0.2"></script>
+</body>
+</html>
