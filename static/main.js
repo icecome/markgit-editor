@@ -434,12 +434,6 @@ if (typeof Vue !== 'undefined') {
                     
                     this.showToast(response.data?.message || '提交成功', 'success');
                     this.changes = [];
-                    this.closePanel();
-                    try {
-                        await this.getFiles();
-                    } catch (refreshError) {
-                        console.error('刷新文件列表失败:', refreshError);
-                    }
                 }
                 catch (error) { 
                     console.error('提交失败:', error);
@@ -448,7 +442,13 @@ if (typeof Vue !== 'undefined') {
                 }
                 finally { 
                     this.committing = false;
+                    this.closePanel();
                     IconRenderer.render();
+                    try {
+                        await this.getFiles();
+                    } catch (refreshError) {
+                        console.error('刷新文件列表失败:', refreshError);
+                    }
                 }
             },
             async showChangesPanel() {
