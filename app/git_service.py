@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 ALLOWED_GIT_COMMANDS = {
     'clone', 'pull', 'push', 'add', 'commit', 'status',
     'remote', 'branch', 'checkout', 'fetch', 'init',
-    'config', 'log', 'diff', 'merge', 'reset', 'rev-parse'
+    'config', 'log', 'diff', 'merge', 'reset', 'rev-parse',
+    'symbolic-ref', 'stash'
 }
 
 DANGEROUS_GIT_OPTIONS = {
