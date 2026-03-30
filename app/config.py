@@ -69,9 +69,11 @@ if is_production:
         raise ValueError("生产环境必须配置 CORS_ORIGINS 环境变量")
     logger.info(f"生产环境 CORS 配置：{CORS_ORIGINS_STR}")
     
-    # 生产环境配置验证
     if 'localhost' in CORS_ORIGINS_STR or '127.0.0.1' in CORS_ORIGINS_STR:
-        logger.warning("⚠️ 生产环境 CORS 配置包含 localhost，请确认是否正确")
+        if os.getenv('ALLOW_LOCALHOST_IN_PROD', '').lower() != 'true':
+            logger.error("⚠️ 生产环境 CORS 配置包含 localhost，这是安全风险！")
+            raise ValueError("生产环境 CORS 配置包含 localhost，如需允许请设置 ALLOW_LOCALHOST_IN_PROD=true")
+        logger.warning("⚠️ 生产环境 CORS 配置包含 localhost（已通过 ALLOW_LOCALHOST_IN_PROD 允许）")
 else:
     # 开发环境：允许 localhost
     CORS_ORIGINS_STR = os.getenv('CORS_ORIGINS', 'http://localhost:13131,http://127.0.0.1:13131')

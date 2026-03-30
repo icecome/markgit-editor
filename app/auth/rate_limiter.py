@@ -2,10 +2,13 @@
 简单的内存速率限制器
 用于防止暴力破解和滥用
 """
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Callable, Optional
 import threading
+from functools import wraps
+from fastapi import HTTPException, Request
 from app.config import logger
 
 
@@ -32,20 +35,16 @@ class InMemoryRateLimiter:
         window_start = now - timedelta(seconds=window_seconds)
         
         with self._lock:
-            # 清理过期的请求记录
             self._requests[key] = [
                 req_time for req_time in self._requests[key]
                 if req_time > window_start
             ]
             
-            # 检查是否超过限制
             if len(self._requests[key]) >= max_requests:
-                # 计算需要等待的时间
                 oldest_request = min(self._requests[key])
                 retry_after = int((oldest_request + timedelta(seconds=window_seconds) - now).total_seconds())
                 return False, max(1, retry_after)
             
-            # 记录本次请求
             self._requests[key].append(now)
             return True, 0
     
@@ -55,7 +54,6 @@ class InMemoryRateLimiter:
             self._requests.clear()
 
 
-# 全局速率限制器实例
 rate_limiter = InMemoryRateLimiter()
 
 
@@ -74,7 +72,78 @@ def check_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60)
     return rate_limiter.is_allowed(key, max_requests, window_seconds)
 
 
-MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024  # 10MB
+def rate_limit(max_requests: int = 10, window_seconds: int = 60, key_prefix: str = ""):
+    """
+    速率限制装饰器
+    
+    Args:
+        max_requests: 时间窗口内允许的最大请求数
+        window_seconds: 时间窗口（秒）
+        key_prefix: 键前缀，用于区分不同的接口
+    
+    Usage:
+        @rate_limit(max_requests=5, window_seconds=60, key_prefix="upload")
+        async def upload_file(request: Request, ...):
+            ...
+    """
+    def decorator(func: Callable):
+        def _check_rate_limit(request: Optional[Request]) -> None:
+            if request:
+                client_ip = request.client.host if request.client else "unknown"
+                rate_key = f"{key_prefix}:{client_ip}" if key_prefix else client_ip
+                
+                is_allowed, retry_after = check_rate_limit(rate_key, max_requests, window_seconds)
+                
+                if not is_allowed:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"请求过于频繁，请{retry_after}秒后重试"
+                    )
+        
+        def _find_request(*args, **kwargs) -> Optional[Request]:
+            for arg in args:
+                if isinstance(arg, Request):
+                    return arg
+            
+            request = kwargs.get('request')
+            if request and isinstance(request, Request):
+                return request
+            
+            for key, value in kwargs.items():
+                if isinstance(value, Request):
+                    return value
+            
+            return None
+        
+        if asyncio.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                request = _find_request(*args, **kwargs)
+                _check_rate_limit(request)
+                return await func(*args, **kwargs)
+            return async_wrapper
+        else:
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                request = _find_request(*args, **kwargs)
+                _check_rate_limit(request)
+                return func(*args, **kwargs)
+            return sync_wrapper
+    return decorator
+
+
+RATE_LIMITS = {
+    'upload': {'max_requests': 10, 'window_seconds': 60},
+    'session_create': {'max_requests': 5, 'window_seconds': 60},
+    'init': {'max_requests': 3, 'window_seconds': 60},
+    'commit': {'max_requests': 10, 'window_seconds': 60},
+    'pull': {'max_requests': 10, 'window_seconds': 60},
+    'file_operation': {'max_requests': 30, 'window_seconds': 60},
+    'auth': {'max_requests': 5, 'window_seconds': 60},
+}
+
+
+MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024
 
 def check_request_body_size(content_length: int) -> Tuple[bool, str]:
     """

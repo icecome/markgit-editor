@@ -6,9 +6,10 @@ import asyncio
 import re
 import io
 import hashlib
+from functools import wraps
 from fastapi import APIRouter, HTTPException, Request, Header, UploadFile, File, Form, Depends
 from fastapi.responses import PlainTextResponse
-from typing import Optional
+from typing import Optional, Callable
 from PIL import Image
 from defusedxml import ElementTree as ET
 from slowapi import Limiter
@@ -34,12 +35,47 @@ from app.models import (
     FileCreateRequest, FileSaveRequest, FileRenameRequest,
     FileMoveRequest, FolderCreateRequest, GitRepoRequest, InitRequest
 )
+from app.auth.rate_limiter import rate_limit, RATE_LIMITS
 
 router = APIRouter()
 
-# 获取速率限制器的依赖函数
 def get_limiter(request: Request) -> Limiter:
     return request.app.state.limiter
+
+def handle_errors(message: str, log_detail: bool = True):
+    """统一的错误处理装饰器
+    
+    Args:
+        message: 错误时的用户友好消息
+        log_detail: 是否记录详细错误信息
+    """
+    def decorator(func: Callable):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except HTTPException:
+                raise
+            except Exception as e:
+                if log_detail:
+                    logger.error(f"{message}：{str(e)}")
+                raise HTTPException(status_code=500, detail=message)
+        
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except HTTPException:
+                raise
+            except Exception as e:
+                if log_detail:
+                    logger.error(f"{message}：{str(e)}")
+                raise HTTPException(status_code=500, detail=message)
+        
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        return sync_wrapper
+    return decorator
 
 # === 文件上传安全配置 ===
 ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico'}
@@ -97,53 +133,118 @@ def validate_file_extension_secure(filename: str) -> bool:
         return False
     return True
 
+def decode_html_entities(text: str) -> str:
+    """递归解码 HTML 实体，防止编码绕过攻击"""
+    prev = None
+    current = text
+    max_iterations = 10
+    iteration = 0
+    
+    while prev != current and iteration < max_iterations:
+        prev = current
+        current = html.unescape(current)
+        iteration += 1
+    
+    return current
+
 def validate_svg_content(content: bytes) -> bool:
-    """验证 SVG 文件内容是否安全"""
+    """验证 SVG 文件内容是否安全
+    
+    采用多层防御策略：
+    1. 原始内容检查（防止编码绕过）
+    2. XML 解析检查（防止 XXE 攻击）
+    3. 元素和属性白名单检查
+    4. 危险模式正则检查
+    """
     try:
-        # 1. 使用 defusedxml 解析 SVG，防止 XXE 攻击
-        root = ET.fromstring(content.decode('utf-8'))
+        content_str = content.decode('utf-8', errors='ignore')
         
-        # 2. 检查根元素是否为 svg
+        decoded_content = decode_html_entities(content_str)
+        decoded_lower = decoded_content.lower()
+        
+        dangerous_patterns = [
+            r'<\s*script', r'<\s*iframe', r'<\s*object', r'<\s*embed',
+            r'<\s*form', r'<\s*input', r'<\s*button',
+            r'<\s*style', r'<\s*link', r'<\s*meta',
+            r'<\s*foreignobject', r'<\s*use\s+[^>]*href\s*=',
+            r'<\s*animate', r'<\s*set\s+[^>]*attributename\s*=',
+            r'javascript\s*:', r'vbscript\s*:', r'data\s*:',
+            r'on\w+\s*=', r'@import', r'expression\s*\(',
+            r'<!\[cdata\[', r'<!entity', r'<!doctype',
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, decoded_lower, re.IGNORECASE):
+                logger.warning(f"SVG 包含危险模式：{pattern}")
+                return False
+        
+        root = ET.fromstring(content_str)
+        
         if root.tag.lower().split('}')[-1] != 'svg':
             logger.warning("SVG 根元素不是 <svg> 标签")
             return False
         
-        # 3. 递归检查所有元素和属性的安全性
-        def check_element(elem):
-            # 检查标签名
-            tag_name = elem.tag.lower().split('}')[-1]  # 处理命名空间
-            dangerous_elements = {
-                'script', 'iframe', 'object', 'embed', 'form',
-                'style', 'foreignobject', 'switch', 'use',
-                'animate', 'animatemotion', 'animatetransform',
-                'set', 'feimage', 'pattern', 'marker'
-            }
-            if tag_name in dangerous_elements:
-                logger.warning(f"SVG 包含危险元素：{tag_name}")
+        safe_elements = {
+            'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line',
+            'polyline', 'polygon', 'text', 'tspan', 'textpath',
+            'defs', 'clippath', 'mask', 'lineargradient', 'radialgradient',
+            'stop', 'symbol', 'desc', 'title', 'image', 'view'
+        }
+        
+        safe_attributes = {
+            'id', 'class', 'transform', 'viewbox', 'width', 'height',
+            'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+            'd', 'points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap',
+            'stroke-linejoin', 'stroke-dasharray', 'stroke-dashoffset',
+            'fill-rule', 'clip-rule', 'opacity', 'fill-opacity', 'stroke-opacity',
+            'font-family', 'font-size', 'font-weight', 'font-style',
+            'text-anchor', 'dominant-baseline', 'preserveaspectratio',
+            'offset', 'stop-color', 'stop-opacity', 'gradientunits',
+            'gradienttransform', 'patternunits', 'patterntransform',
+            'clippathunits', 'maskunits', 'maskcontentunits',
+            'xmlns', 'xmlns:xlink', 'version', 'baseprofile',
+            'dx', 'dy', 'rotate', 'textlength', 'lengthadjust',
+            'startoffset', 'method', 'spacing'
+        }
+        
+        def check_element(elem, depth=0):
+            if depth > 50:
+                logger.warning("SVG 嵌套层级过深")
                 return False
             
-            # 检查属性
+            tag_name = elem.tag.lower().split('}')[-1]
+            
+            if tag_name not in safe_elements:
+                logger.warning(f"SVG 包含非白名单元素：{tag_name}")
+                return False
+            
             for attr_name, attr_value in elem.attrib.items():
-                attr_name_lower = attr_name.lower()
+                attr_name_lower = attr_name.lower().split('}')[-1]
                 
-                # 检查事件处理器
                 if attr_name_lower.startswith('on'):
-                    logger.warning(f"SVG 包含危险事件处理器：{attr_name}")
+                    logger.warning(f"SVG 包含事件处理器属性：{attr_name}")
                     return False
                 
-                # 检查危险协议（完全禁止外部资源加载）
-                attr_value_lower = attr_value.lower()
-                dangerous_protocols = [
-                    'javascript:', 'data:', 'vbscript:', 'file:',
-                    'ftp:', 'http:', 'https:'  # 完全禁止外部资源
-                ]
-                if any(protocol in attr_value_lower for protocol in dangerous_protocols):
-                    logger.warning(f"SVG 包含危险协议：{attr_value}")
+                if attr_name_lower not in safe_attributes:
+                    if attr_name_lower in {'href', 'xlink:href'}:
+                        decoded_value = decode_html_entities(attr_value).lower()
+                        if decoded_value.startswith('#'):
+                            pass
+                        else:
+                            logger.warning(f"SVG 外部引用被阻止：{attr_value[:50]}")
+                            return False
+                    else:
+                        logger.warning(f"SVG 包含非白名单属性：{attr_name_lower}")
+                        return False
+                
+                decoded_attr_value = decode_html_entities(attr_value).lower()
+                dangerous_protocols = ['javascript:', 'vbscript:', 'data:', 'file:']
+                if any(protocol in decoded_attr_value for protocol in dangerous_protocols):
+                    logger.warning(f"SVG 属性包含危险协议：{attr_name}")
                     return False
             
-            # 递归检查子元素
             for child in elem:
-                if not check_element(child):
+                if not check_element(child, depth + 1):
                     return False
             
             return True
@@ -151,15 +252,8 @@ def validate_svg_content(content: bytes) -> bool:
         if not check_element(root):
             return False
         
-        # 4. 额外检查：确保没有 CDATA 或注释中隐藏的脚本
-        content_str = content.decode('utf-8', errors='ignore').lower()
-        if any(script_tag in content_str for script_tag in [
-            '<![cdata[', '&lt;script', '&lt;iframe', '&lt;object'
-        ]):
-            logger.warning("SVG 包含潜在的编码绕过内容")
-            return False
-        
         return True
+        
     except ET.ParseError as e:
         logger.warning(f"SVG XML 解析失败：{e}")
         return False
@@ -853,20 +947,20 @@ async def save_post(filename: str, request: Request):
 git_operation_lock = asyncio.Lock()
 
 @router.get("/session/create", response_model=ApiResponse)
-def create_session(x_user_id: Optional[str] = Header(None)):
+@rate_limit(**RATE_LIMITS['session_create'], key_prefix="session_create")
+def create_session(request: Request, x_user_id: Optional[str] = Header(None)):
     """创建新的用户会话
     
     Args:
         x_user_id: 可选的用户 ID 头，用于标识用户（单用户单会话策略）
     """
     try:
-        # 如果有 user_id，清理该用户的旧会话
         clean_old = x_user_id is not None
         session_id, session_path = session_manager.create_session(
             user_id=x_user_id, 
             clean_old=clean_old
         )
-        logger.info(f"创建新会话：{session_id[:8]}... 用户：{x_user_id[:8] if x_user_id else 'anonymous'}...")
+        logger.info(f"创建新会话：{session_id[:8]}...")
         return ApiResponse(
             message="会话创建成功",
             data={
@@ -930,7 +1024,8 @@ def get_user_id():
         raise HTTPException(status_code=500, detail="生成用户 ID 失败：" + str(e))
 
 @router.post("/init", response_model=ApiResponse)
-async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Header(None),
+@rate_limit(**RATE_LIMITS['init'], key_prefix="init")
+async def init_workspace(request: Request, body: InitRequest, x_session_id: Optional[str] = Header(None),
                          x_oauth_session_id: Optional[str] = Header(None)):
     """初始化工作区，必须提供会话 ID
     
@@ -947,12 +1042,10 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
             
             base_path = get_session_path(x_session_id)
             
-            # 更新会话级别的 Git 仓库配置
-            if request.gitRepo:
-                session_manager.update_session_git_repo(x_session_id, request.gitRepo)
-                logger.info(f"会话 {x_session_id[:8]}... Git 仓库配置已设置：{sanitize_for_log(request.gitRepo)}")
+            if body.gitRepo:
+                session_manager.update_session_git_repo(x_session_id, body.gitRepo)
+                logger.info(f"会话 {x_session_id[:8]}... Git 仓库配置已设置：{sanitize_for_log(body.gitRepo)}")
             
-            # 传递会话路径、会话 ID（用于获取 Git 仓库配置）和 OAuth session_id（用于获取访问令牌）
             result = await init_local_git_async(
                 session_path=base_path, 
                 session_id=x_session_id,
@@ -976,7 +1069,8 @@ async def init_workspace(request: InitRequest, x_session_id: Optional[str] = Hea
                 logger.warning("同步分支名称失败：" + str(e))
 
 @router.post("/pull", response_model=ApiResponse)
-async def pull_repo(x_session_id: Optional[str] = Header(None),
+@rate_limit(**RATE_LIMITS['pull'], key_prefix="pull")
+async def pull_repo(request: Request, x_session_id: Optional[str] = Header(None),
                     x_oauth_session_id: Optional[str] = Header(None)):
     """拉取远程更新，支持会话隔离"""
     async with git_operation_lock:
@@ -1038,7 +1132,8 @@ async def soft_reset(x_session_id: Optional[str] = Header(None),
             raise HTTPException(status_code=500, detail="软重置工作区失败")
 
 @router.post("/commit", response_model=ApiResponse)
-async def commit(x_session_id: Optional[str] = Header(None), 
+@rate_limit(**RATE_LIMITS['commit'], key_prefix="commit")
+async def commit(request: Request, x_session_id: Optional[str] = Header(None), 
                  x_oauth_session_id: Optional[str] = Header(None)):
     async with git_operation_lock:
         try:

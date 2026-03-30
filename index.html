@@ -13,7 +13,7 @@
     <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/main.css?v=1.0.2">
+    <link rel="stylesheet" href="/static/main.css?v=1.0.3">
     <script>
     // CDN 降级机制
     (function() {
@@ -62,7 +62,7 @@
         }
         
         .side-panel-footer-fixed {
-            position: absolute;
+            position: sticky;
             bottom: 0;
             left: 0;
             right: 0;
@@ -74,6 +74,59 @@
             justify-content: flex-end;
             flex-shrink: 0;
             z-index: 10;
+            margin-top: auto;
+        }
+        
+        .settings-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .settings-panel-content > *:last-child {
+            margin-bottom: 0;
+        }
+        
+        .changes-panel-container {
+            position: relative;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .panel-loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(var(--bg-secondary-rgb, 255, 255, 255), 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            border-radius: var(--radius-md);
+        }
+        
+        .loading-spinner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-color);
+            margin-bottom: 12px;
+        }
+        
+        .loading-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .panel-content-loading {
+            opacity: 0.5;
+            pointer-events: none;
         }
         
         .section-subtitle {
@@ -445,7 +498,7 @@
                 </div>
             </div>
 
-            <div v-if="panelType === 'config'" class="settings-panel-content" style="padding-bottom: 80px;">
+            <div v-if="panelType === 'config'" class="settings-panel-content">
                 <div class="section-title">
                     <i data-lucide="git-branch" style="width: 16px; height: 16px;"></i>
                     Git 仓库配置
@@ -677,12 +730,18 @@
                 </div>
             </div>
 
-            <div v-if="panelType === 'changes'">
+            <div v-if="panelType === 'changes'" class="changes-panel-container">
+                <div v-if="committing" class="panel-loading-overlay">
+                    <div class="loading-spinner">
+                        <i data-lucide="loader-2" style="width: 32px; height: 32px; animation: spin 1s linear infinite;"></i>
+                    </div>
+                    <span class="loading-text">正在提交变更...</span>
+                </div>
                 <div v-if="changes.length === 0" class="empty-state" style="height: 200px;">
                     <i data-lucide="check-circle" style="width: 32px; height: 32px; color: #10b981;"></i>
                     <h3 style="color: #10b981;">没有待提交的更改</h3>
                 </div>
-                <div v-else>
+                <div v-else :class="{ 'panel-content-loading': committing }">
                     <ul class="changes-list">
                         <li v-for="change in changes" :key="change">
                             <span class="change-icon modified">
@@ -692,7 +751,7 @@
                         </li>
                     </ul>
                     <div class="form-actions">
-                        <button class="btn btn-secondary" @click="closePanel">取消</button>
+                        <button class="btn btn-secondary" @click="closePanel" :disabled="committing">取消</button>
                         <button class="btn btn-success" @click="commit" :disabled="committing">
                             <i data-lucide="git-commit" style="width: 16px; height: 16px;" v-if="!committing"></i>
                             <i data-lucide="loader-2" style="width: 16px; height: 16px; animation: spin 1s linear infinite;" v-else></i>
@@ -767,7 +826,7 @@
     
 </div>
 
-<script src="/static/oauth-component.js?v=1.0.2"></script>
-  <script src="/static/main.js?v=1.0.2"></script>
+<script src="/static/oauth-component.js?v=1.0.3"></script>
+  <script src="/static/main.js?v=1.0.3"></script>
 </body>
 </html>

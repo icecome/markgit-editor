@@ -3,6 +3,7 @@ import json
 import secrets
 import shutil
 import threading
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -64,6 +65,14 @@ class SessionManager:
         except Exception as e:
             logger.error(f"保存会话数据失败：{e}")
     
+    def _generate_secure_dir_name(self, session_id: str) -> str:
+        """生成不可预测的安全目录名
+        
+        使用 session_id 的 SHA256 哈希作为目录名，防止目录名可预测攻击
+        """
+        hash_obj = hashlib.sha256(session_id.encode())
+        return hash_obj.hexdigest()[:32]
+    
     def create_session(self, user_id: Optional[str] = None, clean_old: bool = True) -> tuple:
         """创建新会话
         
@@ -75,11 +84,10 @@ class SessionManager:
             (session_id, session_path) 元组
         """
         session_id = secrets.token_urlsafe(32)
-        # user_id 独立生成，不与 session_id 关联，防止可预测性攻击
         user_id = user_id or secrets.token_urlsafe(16)
-        session_path = os.path.normpath(os.path.join(self.cache_base_path, f"user_{user_id}"))
+        secure_dir_name = self._generate_secure_dir_name(session_id)
+        session_path = os.path.normpath(os.path.join(self.cache_base_path, secure_dir_name))
         
-        # 如果是老用户，清理旧会话（单用户单会话策略）
         if clean_old and user_id:
             old_session_result = self.get_session_by_user_id(user_id)
             if old_session_result:
@@ -99,7 +107,7 @@ class SessionManager:
         os.makedirs(session_path, exist_ok=True)
         self._save_sessions()
         
-        logger.info(f"创建新会话：{session_id[:8]}... 用户：{user_id[:8]}...")
+        logger.info(f"创建新会话：{session_id[:8]}...")
         return session_id, session_path
     
     def get_session_by_user_id(self, user_id: str) -> Optional[tuple]:

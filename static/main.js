@@ -8,6 +8,55 @@
  * 4. 使用防抖避免频繁调用
  * 5. MutationObserver 自动检测新增图标
  */
+
+const SecurityUtils = {
+    sanitizeHtml(text) {
+        if (typeof DOMPurify !== 'undefined') {
+            return DOMPurify.sanitize(String(text), { 
+                ALLOWED_TAGS: [],
+                ALLOWED_ATTR: []
+            });
+        }
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+    
+    sanitizeAttribute(value) {
+        if (typeof DOMPurify !== 'undefined') {
+            return DOMPurify.sanitize(String(value), { 
+                ALLOWED_TAGS: [],
+                ALLOWED_ATTR: []
+            });
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;');
+    },
+    
+    isValidUrl(url) {
+        if (!url) return false;
+        try {
+            const parsed = new URL(url, window.location.origin);
+            const safeProtocols = ['http:', 'https:', 'mailto:'];
+            return safeProtocols.includes(parsed.protocol);
+        } catch {
+            return false;
+        }
+    },
+    
+    sanitizeUrl(url) {
+        if (!url) return '';
+        if (this.isValidUrl(url)) {
+            return url;
+        }
+        return '';
+    }
+};
+
 const IconRenderer = {
     timer: null,
     pending: false,
@@ -375,6 +424,10 @@ if (typeof Vue !== 'undefined') {
             async saveAllSettings() {
                 this.saving = true;
                 try {
+                    if (!this.sessionId) {
+                        await this.createOrUseSession();
+                    }
+                    
                     if (this.gitRepo) {
                         await axios.post('/api/git-repo', { gitRepo: this.gitRepo }, { headers: this.getHeaders() });
                     }
@@ -424,7 +477,7 @@ if (typeof Vue !== 'undefined') {
                     return;
                 }
                 this.committing = true;
-                IconRenderer.render();
+                this.$nextTick(() => IconRenderer.render());
                 try {
                     const response = await axios.post('/api/commit', {}, { headers: this.getHeaders() });
                     
@@ -448,7 +501,7 @@ if (typeof Vue !== 'undefined') {
                 }
                 finally { 
                     this.committing = false;
-                    IconRenderer.render();
+                    this.$nextTick(() => IconRenderer.render());
                 }
             },
             async showChangesPanel() {
@@ -711,9 +764,7 @@ if (typeof Vue !== 'undefined') {
                 if (this.contentEditor) { const content = this.contentEditor.getValue(); this.createEditor(this.editingFilePath, content); }
             },
             escapeHtml(text) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
+                return SecurityUtils.sanitizeHtml(text);
             },
             copyToClipboard(text, message) {
                 navigator.clipboard.writeText(text).then(() => { this.showToast(message, 'success'); }).catch(() => {
@@ -983,30 +1034,85 @@ if (typeof Vue !== 'undefined') {
                 finally { this.loading = false; }
             },
             buildFileTree() {
-                const root = { children: {} }; const sortedFiles = [...this.files].sort((a, b) => a.path.localeCompare(b.path));
+                const root = { children: {} };
+                const sortedFiles = [...this.files].sort((a, b) => a.path.localeCompare(b.path));
+                
                 for (const file of sortedFiles) {
-                    const parts = file.path.split('/').filter(p => p); let current = root; let currentPath = '';
+                    const parts = file.path.split('/').filter(p => p);
+                    let current = root;
+                    let currentPath = '';
+                    
                     for (let i = 0; i < parts.length; i++) {
-                        const part = parts[i]; const isLast = i === parts.length - 1;
+                        const part = parts[i];
+                        const isLast = i === parts.length - 1;
                         currentPath = currentPath ? currentPath + '/' + part : part;
+                        
                         if (!current.children[part]) {
-                            if (isLast) { current.children[part] = { name: part, path: currentPath, type: file.type, size: file.size, children: file.type === 'directory' ? {} : undefined }; }
-                            else { current.children[part] = { name: part, path: currentPath, type: 'directory', children: {} }; }
-                        } else if (isLast && file.type === 'directory') { current.children[part].type = 'directory'; if (!current.children[part].children) current.children[part].children = {}; }
+                            if (isLast) {
+                                current.children[part] = {
+                                    name: part,
+                                    path: currentPath,
+                                    type: file.type,
+                                    size: file.size,
+                                    children: file.type === 'directory' ? {} : undefined
+                                };
+                            } else {
+                                current.children[part] = {
+                                    name: part,
+                                    path: currentPath,
+                                    type: 'directory',
+                                    children: {}
+                                };
+                            }
+                        } else if (isLast && file.type === 'directory') {
+                            current.children[part].type = 'directory';
+                            if (!current.children[part].children) {
+                                current.children[part].children = {};
+                            }
+                        }
                         current = current.children[part];
                     }
                 }
+                
                 const convertToArray = (node) => {
                     if (!node.children) return node;
-                    const children = Object.values(node.children).map(convertToArray).sort((a, b) => { if (a.type !== b.type) return a.type === 'directory' ? -1 : 1; return a.name.localeCompare(b.name); });
+                    const children = Object.values(node.children)
+                        .map(convertToArray)
+                        .sort((a, b) => {
+                            if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+                            return a.name.localeCompare(b.name);
+                        });
                     return { ...node, children };
                 };
-                this.fileTree = Object.values(root.children).map(convertToArray).sort((a, b) => { if (a.type !== b.type) return a.type === 'directory' ? -1 : 1; return a.name.localeCompare(b.name); });
                 
-                // 构建完成后立即渲染图标
+                const newTree = Object.values(root.children)
+                    .map(convertToArray)
+                    .sort((a, b) => {
+                        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+                        return a.name.localeCompare(b.name);
+                    });
+                
+                if (this._shouldUpdateTree(this.fileTree, newTree)) {
+                    this.fileTree = newTree;
+                }
+                
                 this.$nextTick(() => {
                     IconRenderer.render();
                 });
+            },
+            
+            _shouldUpdateTree(oldTree, newTree) {
+                if (!oldTree || oldTree.length !== newTree.length) return true;
+                
+                const compareNodes = (a, b) => {
+                    if (a.path !== b.path || a.type !== b.type) return false;
+                    if (!a.children && !b.children) return true;
+                    if (!a.children || !b.children) return false;
+                    if (a.children.length !== b.children.length) return false;
+                    return a.children.every((child, i) => compareNodes(child, b.children[i]));
+                };
+                
+                return oldTree.some((node, i) => !compareNodes(node, newTree[i]));
             },
             createEditor(filePath, rawContent) {
                 if (this.contentEditor) this.contentEditor.destroy();

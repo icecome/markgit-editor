@@ -258,7 +258,7 @@ gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:13131
 
 ---
 
-**版本**: v1.0.0  
-**更新日期**: 2026-03-03
+**版本**: v1.0.3  
+**更新日期**: 2026-03-30
 
 详细版本历史请参考 [app/version.py](app/version.py)

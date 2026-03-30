@@ -81,7 +81,6 @@ def get_safe_git_env(cache_path: str, oauth_session_id: Optional[str] = None, fo
         env['GIT_DIR'] = git_dir
         env['GIT_WORK_TREE'] = cache_path
     
-    # 添加 OAuth 令牌
     oauth_token = get_oauth_token(oauth_session_id) if oauth_session_id else None
     if oauth_token:
         env['MARKGIT_OAUTH_TOKEN'] = oauth_token
@@ -632,6 +631,241 @@ async def pull_updates_async(session_id: Optional[str] = None, oauth_session_id:
     
     logger.info("已拉取远程最新更改")
 
+
+def _handle_existing_repo(cache_path: str, oauth_session_id: Optional[str], git_repo: str) -> Dict[str, str]:
+    """处理已存在 Git 仓库的情况"""
+    from fastapi import HTTPException
+    
+    try:
+        remote_result = safe_git_run(['git', 'remote', '-v'], cache_path, oauth_session_id, capture_output=True, text=True)
+        has_remote = 'origin' in remote_result.stdout
+        
+        if has_remote:
+            has_content = any(
+                os.path.exists(os.path.join(cache_path, f)) 
+                for f in os.listdir(cache_path) if f != '.git'
+            ) if os.path.exists(cache_path) else False
+            
+            if not has_content:
+                _pull_remote_content(cache_path, oauth_session_id)
+            
+            try:
+                configure_git_user(oauth_session_id, cache_path=cache_path)
+            except Exception as e:
+                logger.error(f"配置 Git 用户失败：{e}")
+            
+            return {"message": "初始化成功，仓库已连接", "status": "connected"}
+        else:
+            if git_repo:
+                safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
+                try:
+                    configure_git_user(oauth_session_id, cache_path=cache_path)
+                except Exception as e:
+                    logger.error(f"配置 Git 用户失败：{e}")
+                logger.info("已设置远程仓库配置")
+                return {"message": "初始化成功，远程仓库已配置", "status": "remote_configured"}
+            else:
+                return {"message": "仓库已初始化，请配置远程仓库地址", "status": "no_remote"}
+    except subprocess.CalledProcessError as e:
+        logger.warning("检查远程配置失败：" + (e.stderr if e.stderr else str(e)))
+        return {"message": "仓库已初始化，远程配置检查失败", "status": "remote_check_failed"}
+
+
+def _pull_remote_content(cache_path: str, oauth_session_id: Optional[str]) -> None:
+    """拉取远程仓库内容"""
+    logger.info("仓库存在但没有文件，尝试拉取远程内容")
+    try:
+        safe_git_run(['git', 'fetch', 'origin'], cache_path, oauth_session_id, capture_output=True, text=True, timeout=60)
+        
+        remote_head_result = safe_git_run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
+        if remote_head_result.returncode == 0:
+            default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
+            logger.info(f"远程默认分支: {default_branch}")
+            
+            safe_git_run(['git', 'checkout', default_branch], cache_path, oauth_session_id, capture_output=True, text=True)
+            safe_git_run(['git', 'reset', '--hard', f'origin/{default_branch}'], cache_path, oauth_session_id, capture_output=True, text=True)
+            
+            files_after = [f for f in os.listdir(cache_path) if f != '.git']
+            logger.info(f"拉取后目录文件数: {len(files_after)}")
+        else:
+            logger.warning("无法获取远程默认分支，尝试直接检出")
+            safe_git_run(['git', 'checkout', 'main'], cache_path, oauth_session_id, capture_output=True, text=True)
+            safe_git_run(['git', 'reset', '--hard', 'origin/main'], cache_path, oauth_session_id, capture_output=True, text=True)
+    except Exception as e:
+        logger.warning(f"拉取远程内容失败：{e}")
+
+
+def _handle_local_files_with_remote(cache_path: str, oauth_session_id: Optional[str], git_repo: str) -> Dict[str, str]:
+    """处理本地有文件但无 Git 仓库的情况"""
+    from fastapi import HTTPException
+    
+    logger.info("本地有文件但无 Git 仓库，保留本地文件并连接远程仓库")
+    temp_dir = cache_path + "_remote_temp"
+    
+    _cleanup_directory(temp_dir)
+    
+    clone_success, clone_error = _clone_to_temp(temp_dir, cache_path, oauth_session_id, git_repo)
+    
+    if clone_success or (clone_error and 'empty repository' in clone_error.lower()):
+        if os.path.exists(os.path.join(temp_dir, '.git')):
+            shutil.copytree(os.path.join(temp_dir, '.git'), os.path.join(cache_path, '.git'))
+        configure_git_user(oauth_session_id, cache_path=cache_path)
+        
+        if clone_success and os.path.exists(temp_dir):
+            for item in os.listdir(temp_dir):
+                if item == '.git':
+                    continue
+                src = os.path.join(temp_dir, item)
+                dst = os.path.join(cache_path, item)
+                if not os.path.exists(dst):
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+        
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        safe_git_run(['git', 'add', '-A'], cache_path, oauth_session_id, check=True, capture_output=True)
+        logger.info("本地文件已保留，远程仓库已连接")
+        return {"message": "初始化成功，本地文件已保留", "status": "preserved_local"}
+    else:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        error_msg = clone_error or "未知错误"
+        if 'Repository not found' in error_msg or 'not found' in error_msg.lower():
+            raise HTTPException(status_code=500, detail="仓库未找到，请检查地址和访问权限")
+        raise HTTPException(status_code=500, detail="连接远程仓库失败：" + error_msg)
+
+
+def _handle_local_files_no_remote(cache_path: str, oauth_session_id: Optional[str]) -> Dict[str, str]:
+    """处理本地有文件但无远程仓库配置的情况"""
+    logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
+    safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
+    configure_git_user(oauth_session_id, cache_path=cache_path)
+    return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
+
+
+def _clone_remote_repo(cache_path: str, oauth_session_id: Optional[str], git_repo: str) -> Dict[str, str]:
+    """克隆远程仓库"""
+    from fastapi import HTTPException
+    
+    logger.info("本地无文件，克隆远程仓库")
+    
+    parent_dir = os.path.normpath(os.path.dirname(cache_path))
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
+        logger.info(f"创建父目录：{parent_dir}")
+    
+    if os.path.exists(cache_path):
+        if os.listdir(cache_path):
+            backup_path = cache_path + "_backup_" + str(int(time.time()))
+            logger.info("目录已存在且非空，备份到：" + backup_path)
+            try:
+                shutil.move(cache_path, backup_path)
+            except Exception as e:
+                logger.warning("备份目录失败，尝试删除：" + str(e))
+                shutil.rmtree(cache_path, ignore_errors=True)
+        else:
+            logger.info("目录已存在但为空，删除后重新克隆")
+            shutil.rmtree(cache_path, ignore_errors=True)
+    
+    temp_dir = os.path.normpath(cache_path + "_clone_temp_" + str(int(time.time())))
+    
+    clone_success, clone_error = _clone_to_temp(temp_dir, cache_path, oauth_session_id, git_repo)
+    
+    if clone_success:
+        os.makedirs(parent_dir, exist_ok=True)
+        shutil.move(temp_dir, cache_path)
+        logger.info("远程仓库克隆成功")
+        try:
+            configure_git_user(oauth_session_id, cache_path=cache_path)
+        except Exception as e:
+            logger.error(f"配置 Git 用户失败：{e}")
+        return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
+    elif clone_error and 'empty repository' in clone_error.lower():
+        os.makedirs(cache_path, exist_ok=True)
+        safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
+        safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
+        configure_git_user(oauth_session_id, cache_path=cache_path)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.info("空仓库初始化成功")
+        return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
+    else:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        error_msg = clone_error or "未知错误"
+        if 'Repository not found' in error_msg or 'not found' in error_msg.lower():
+            raise HTTPException(status_code=500, detail="仓库未找到，请检查地址和访问权限")
+        elif 'Permission denied' in error_msg or 'password' in error_msg.lower():
+            raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
+        raise HTTPException(status_code=500, detail="克隆仓库失败：" + error_msg)
+
+
+def _init_empty_repo(cache_path: str, oauth_session_id: Optional[str]) -> Dict[str, str]:
+    """初始化空仓库"""
+    logger.info("本地无文件，无远程仓库配置，初始化空仓库")
+    os.makedirs(cache_path, exist_ok=True)
+    safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
+    configure_git_user(oauth_session_id, cache_path=cache_path)
+    return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
+
+
+def _cleanup_directory(dir_path: str) -> None:
+    """清理目录，带重试机制"""
+    if not os.path.exists(dir_path):
+        return
+    
+    logger.info("清理已存在的临时目录：" + dir_path)
+    for retry in range(3):
+        try:
+            shutil.rmtree(dir_path, ignore_errors=True)
+            if not os.path.exists(dir_path):
+                return
+        except Exception as e:
+            logger.warning(f"清理临时目录失败 (尝试 {retry+1}/3): {e}")
+            time.sleep(0.5)
+    
+    if os.path.exists(dir_path):
+        logger.warning("无法完全清理临时目录，尝试使用系统命令")
+        try:
+            if os.name == 'nt':
+                subprocess.run(['cmd', '/c', 'rmdir', '/s', '/q', dir_path], 
+                             cwd=os.path.dirname(dir_path), capture_output=True, timeout=5)
+            else:
+                subprocess.run(['rm', '-rf', dir_path], 
+                             cwd=os.path.dirname(dir_path), capture_output=True, timeout=5)
+        except Exception as e:
+            logger.error("强制清理临时目录失败：" + str(e))
+
+
+def _clone_to_temp(temp_dir: str, cache_path: str, oauth_session_id: Optional[str], git_repo: str) -> tuple:
+    """克隆仓库到临时目录"""
+    clone_success = False
+    clone_error = None
+    
+    try:
+        safe_git_run(
+            ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, temp_dir],
+            cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
+        )
+        clone_success = True
+    except subprocess.CalledProcessError as e:
+        clone_error = e.stderr if e.stderr else str(e)
+        if 'Remote branch' in clone_error and 'not found' in clone_error:
+            try:
+                safe_git_run(
+                    ['git', 'clone', git_repo, temp_dir],
+                    cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
+                )
+                clone_success = True
+            except subprocess.CalledProcessError as e2:
+                clone_error = e2.stderr if e2.stderr else str(e2)
+    
+    return clone_success, clone_error
+
+
 async def init_local_git_async(session_path: str = None, session_id: Optional[str] = None, oauth_session_id: Optional[str] = None):
     """初始化本地 Git 仓库
     
@@ -646,15 +880,12 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
     from fastapi import HTTPException
     from app.session_manager import session_manager
     
-    # 必须提供会话路径，不允许使用全局配置
     if not session_path:
         raise ValueError("必须提供会话路径，不允许使用全局配置")
     cache_path = session_path
     
-    # 记录操作路径
     logger.info(f"init_local_git_async 操作路径: {cache_path}")
     
-    # 优先使用会话级别的 Git 仓库配置
     git_repo = ''
     if session_id:
         git_repo = session_manager.get_session_git_repo(session_id)
@@ -667,251 +898,22 @@ async def init_local_git_async(session_path: str = None, session_id: Optional[st
         for f in os.listdir(cache_path) if f != '.git'
     ) if os.path.exists(cache_path) else False
     
-    # 获取安全的 Git 环境变量
-    env = get_safe_git_env(cache_path, oauth_session_id)
+    get_safe_git_env(cache_path, oauth_session_id)
     
     if has_git:
-        logger.info("Git 仓库已存在，检查远程配置")
-        try:
-            remote_result = safe_git_run(['git', 'remote', '-v'], cache_path, oauth_session_id, capture_output=True, text=True)
-            has_remote = 'origin' in remote_result.stdout
-            
-            if has_remote:
-                # 检查是否有文件（除了 .git 目录）
-                has_content = any(
-                    os.path.exists(os.path.join(cache_path, f)) 
-                    for f in os.listdir(cache_path) if f != '.git'
-                ) if os.path.exists(cache_path) else False
-                
-                if not has_content:
-                    # 仓库存在但没有文件，尝试拉取远程内容
-                    logger.info("仓库存在但没有文件，尝试拉取远程内容")
-                    try:
-                        # 先 fetch 远程内容
-                        fetch_result = safe_git_run(['git', 'fetch', 'origin'], cache_path, oauth_session_id, capture_output=True, text=True, timeout=60)
-                        logger.info(f"Fetch 结果: {fetch_result.stdout[:200] if fetch_result.stdout else '无输出'}")
-                        
-                        # 获取默认分支
-                        remote_head_result = safe_git_run(['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], cache_path, oauth_session_id, capture_output=True, text=True)
-                        if remote_head_result.returncode == 0:
-                            default_branch = remote_head_result.stdout.strip().replace('refs/remotes/origin/', '')
-                            logger.info(f"远程默认分支: {default_branch}")
-                            
-                            # 检出分支
-                            checkout_result = safe_git_run(['git', 'checkout', default_branch], cache_path, oauth_session_id, capture_output=True, text=True)
-                            logger.info(f"Checkout 结果: {checkout_result.stdout[:200] if checkout_result.stdout else checkout_result.stderr[:200]}")
-                            
-                            # 重置到远程分支
-                            reset_result = safe_git_run(['git', 'reset', '--hard', f'origin/{default_branch}'], cache_path, oauth_session_id, capture_output=True, text=True)
-                            logger.info(f"Reset 结果: {reset_result.stdout[:200] if reset_result.stdout else reset_result.stderr[:200]}")
-                            
-                            # 检查是否有文件
-                            files_after = [f for f in os.listdir(cache_path) if f != '.git']
-                            logger.info(f"拉取后目录文件数: {len(files_after)}")
-                        else:
-                            # 如果无法获取默认分支，尝试直接 checkout
-                            logger.warning("无法获取远程默认分支，尝试直接检出")
-                            safe_git_run(['git', 'checkout', 'main'], cache_path, oauth_session_id, capture_output=True, text=True)
-                            safe_git_run(['git', 'reset', '--hard', 'origin/main'], cache_path, oauth_session_id, capture_output=True, text=True)
-                    except Exception as e:
-                        logger.warning(f"拉取远程内容失败：{e}")
-                
-                try:
-                    configure_git_user(oauth_session_id, cache_path=cache_path)
-                except Exception as e:
-                    logger.error(f"配置 Git 用户失败：{e}")
-                
-                return {"message": "初始化成功，仓库已连接", "status": "connected"}
-            else:
-                if git_repo:
-                    safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
-                    try:
-                        configure_git_user(oauth_session_id, cache_path=cache_path)
-                    except Exception as e:
-                        logger.error(f"配置 Git 用户失败：{e}")
-                    logger.info("已设置远程仓库配置")
-                    return {"message": "初始化成功，远程仓库已配置", "status": "remote_configured"}
-                else:
-                    return {"message": "仓库已初始化，请配置远程仓库地址", "status": "no_remote"}
-        except subprocess.CalledProcessError as e:
-            logger.warning("检查远程配置失败：" + (e.stderr if e.stderr else str(e)))
-            return {"message": "仓库已初始化，远程配置检查失败", "status": "remote_check_failed"}
+        return _handle_existing_repo(cache_path, oauth_session_id, git_repo)
     
     if has_files and git_repo:
-        logger.info("本地有文件但无 Git 仓库，保留本地文件并连接远程仓库")
-        temp_dir = cache_path + "_remote_temp"
-        
-        # 彻底清理临时目录，带重试机制
-        if os.path.exists(temp_dir):
-            logger.info("清理已存在的临时目录：" + temp_dir)
-            for retry in range(3):
-                try:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    if not os.path.exists(temp_dir):
-                        break
-                except Exception as e:
-                    logger.warning(f"清理临时目录失败 (尝试 {retry+1}/3): {e}")
-                    time.sleep(0.5)
-            
-            # 如果仍然存在，尝试强制删除
-            if os.path.exists(temp_dir):
-                logger.warning("无法完全清理临时目录，尝试使用系统命令")
-                try:
-                    if os.name == 'nt':  # Windows
-                        subprocess.run(['cmd', '/c', 'rmdir', '/s', '/q', temp_dir], 
-                                     cwd=cache_path, capture_output=True, timeout=5)
-                    else:  # Linux/Mac
-                        subprocess.run(['rm', '-rf', temp_dir], 
-                                     cwd=cache_path, capture_output=True, timeout=5)
-                except Exception as e:
-                    logger.error("强制清理临时目录失败：" + str(e))
-        
-        clone_success = False
-        clone_error = None
-        
-        try:
-            safe_git_run(
-                ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, temp_dir],
-                cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
-            )
-            clone_success = True
-        except subprocess.CalledProcessError as e:
-            clone_error = e.stderr if e.stderr else str(e)
-            if 'Remote branch' in clone_error and 'not found' in clone_error:
-                try:
-                    safe_git_run(
-                        ['git', 'clone', git_repo, temp_dir],
-                        cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
-                    )
-                    clone_success = True
-                except subprocess.CalledProcessError as e2:
-                    clone_error = e2.stderr if e2.stderr else str(e2)
-        
-        if clone_success or (clone_error and 'empty repository' in clone_error.lower()):
-            if os.path.exists(os.path.join(temp_dir, '.git')):
-                shutil.copytree(os.path.join(temp_dir, '.git'), os.path.join(cache_path, '.git'))
-            configure_git_user(oauth_session_id, cache_path=cache_path)
-            
-            if clone_success and os.path.exists(temp_dir):
-                for item in os.listdir(temp_dir):
-                    if item == '.git':
-                        continue
-                    src = os.path.join(temp_dir, item)
-                    dst = os.path.join(cache_path, item)
-                    if not os.path.exists(dst):
-                        if os.path.isdir(src):
-                            shutil.copytree(src, dst)
-                        else:
-                            shutil.copy2(src, dst)
-            
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            
-            safe_git_run(['git', 'add', '-A'], cache_path, oauth_session_id, check=True, capture_output=True)
-            logger.info("本地文件已保留，远程仓库已连接")
-            return {"message": "初始化成功，本地文件已保留", "status": "preserved_local"}
-        else:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            error_msg = clone_error or "未知错误"
-            if 'Repository not found' in error_msg or 'not found' in error_msg.lower():
-                raise HTTPException(status_code=500, detail="仓库未找到，请检查地址和访问权限")
-            raise HTTPException(status_code=500, detail="连接远程仓库失败：" + error_msg)
+        return _handle_local_files_with_remote(cache_path, oauth_session_id, git_repo)
     
     elif has_files and not git_repo:
-        logger.info("本地有文件，无远程仓库配置，仅初始化 Git")
-        safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
-        configure_git_user(oauth_session_id, cache_path=cache_path)
-        return {"message": "初始化成功，请配置远程仓库地址", "status": "no_remote"}
+        return _handle_local_files_no_remote(cache_path, oauth_session_id)
     
     elif not has_files and git_repo:
-        logger.info("本地无文件，克隆远程仓库")
-        
-        # 确保父目录存在 - 使用 os.path.normpath 处理路径分隔符
-        parent_dir = os.path.normpath(os.path.dirname(cache_path))
-        if not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
-            logger.info(f"创建父目录：{parent_dir}")
-        
-        # 如果目录已存在，先删除或备份
-        if os.path.exists(cache_path):
-            if os.listdir(cache_path):
-                # 目录非空，备份
-                backup_path = cache_path + "_backup_" + str(int(time.time()))
-                logger.info("目录已存在且非空，备份到：" + backup_path)
-                try:
-                    shutil.move(cache_path, backup_path)
-                except Exception as e:
-                    logger.warning("备份目录失败，尝试删除：" + str(e))
-                    shutil.rmtree(cache_path, ignore_errors=True)
-            else:
-                # 目录为空，直接删除
-                logger.info("目录已存在但为空，删除后重新克隆")
-                shutil.rmtree(cache_path, ignore_errors=True)
-        
-        # 克隆到临时目录，然后移动 - 使用 os.path.normpath
-        temp_dir = os.path.normpath(cache_path + "_clone_temp_" + str(int(time.time())))
-        
-        clone_success = False
-        clone_error = None
-        
-        try:
-            safe_git_run(
-                ['git', 'clone', git_repo, '-b', config.BLOG_BRANCH, temp_dir],
-                cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
-            )
-            clone_success = True
-        except subprocess.CalledProcessError as e:
-            clone_error = e.stderr if e.stderr else str(e)
-            if 'Remote branch' in clone_error and 'not found' in clone_error:
-                try:
-                    safe_git_run(
-                        ['git', 'clone', git_repo, temp_dir],
-                        cache_path, oauth_session_id, check=True, capture_output=True, text=True, timeout=120
-                    )
-                    clone_success = True
-                except subprocess.CalledProcessError as e2:
-                    clone_error = e2.stderr if e2.stderr else str(e2)
-        
-        if clone_success:
-            # 确保目标父目录存在
-            os.makedirs(parent_dir, exist_ok=True)
-            # 移动克隆的文件到目标目录
-            shutil.move(temp_dir, cache_path)
-            logger.info("远程仓库克隆成功")
-            try:
-                configure_git_user(oauth_session_id, cache_path=cache_path)
-            except Exception as e:
-                logger.error(f"配置 Git 用户失败：{e}")
-            return {"message": "初始化成功，远程仓库已克隆", "status": "cloned"}
-        elif clone_error and 'empty repository' in clone_error.lower():
-            # 空仓库
-            os.makedirs(cache_path, exist_ok=True)
-            safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
-            safe_git_run(['git', 'remote', 'add', 'origin', git_repo], cache_path, oauth_session_id, check=True, capture_output=True)
-            configure_git_user(oauth_session_id, cache_path=cache_path)
-            # 清理临时目录
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            logger.info("空仓库初始化成功")
-            return {"message": "初始化成功，远程仓库为空", "status": "empty_repo"}
-        else:
-            # 清理临时目录
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            error_msg = clone_error or "未知错误"
-            if 'Repository not found' in error_msg or 'not found' in error_msg.lower():
-                raise HTTPException(status_code=500, detail="仓库未找到，请检查地址和访问权限")
-            elif 'Permission denied' in error_msg or 'password' in error_msg.lower():
-                raise HTTPException(status_code=500, detail="认证失败，请检查访问权限")
-            raise HTTPException(status_code=500, detail="克隆仓库失败：" + error_msg)
+        return _clone_remote_repo(cache_path, oauth_session_id, git_repo)
     
     else:
-        logger.info("本地无文件，无远程仓库配置，初始化空仓库")
-        os.makedirs(cache_path, exist_ok=True)
-        safe_git_run(['git', 'init', '-b', 'main'], cache_path, oauth_session_id, check=True, capture_output=True)
-        configure_git_user(oauth_session_id, cache_path=cache_path)
-        return {"message": "初始化成功，请配置远程仓库地址", "status": "initialized"}
+        return _init_empty_repo(cache_path, oauth_session_id)
 
 def sync_branch_name(cache_path: str = None, oauth_session_id: Optional[str] = None):
     """同步本地分支名称与远程仓库的默认分支

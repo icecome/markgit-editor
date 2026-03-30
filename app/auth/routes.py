@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any
 import secrets
 import base64
 import io
+import time
+from threading import Lock
 
 try:
     import qrcode
@@ -19,6 +21,63 @@ from app.auth.rate_limiter import check_rate_limit
 from app.config import logger
 
 router = APIRouter(prefix="/auth", tags=["OAuth"])
+
+
+class OAuthStateStore:
+    """OAuth CSRF State 存储 - 线程安全的内存存储"""
+    
+    _instance = None
+    _lock = Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._states = {}
+                    cls._instance._state_ttl = 600
+        return cls._instance
+    
+    def set(self, state: str, device_code: str) -> None:
+        """存储 state 与 device_code 的绑定关系"""
+        with self._lock:
+            self._states[state] = {
+                'device_code': device_code,
+                'created_at': time.time()
+            }
+            self._cleanup()
+    
+    def verify_and_consume(self, state: str, device_code: str) -> bool:
+        """验证 state 并消费（一次性使用）"""
+        with self._lock:
+            if state not in self._states:
+                logger.warning(f"OAuth state 不存在：{state[:8]}...")
+                return False
+            
+            stored = self._states[state]
+            
+            if time.time() - stored['created_at'] > self._state_ttl:
+                del self._states[state]
+                logger.warning(f"OAuth state 已过期：{state[:8]}...")
+                return False
+            
+            if not secrets.compare_digest(stored['device_code'], device_code):
+                logger.warning(f"OAuth state device_code 不匹配")
+                return False
+            
+            del self._states[state]
+            return True
+    
+    def _cleanup(self) -> None:
+        """清理过期的 state"""
+        now = time.time()
+        expired = [s for s, v in self._states.items() 
+                   if now - v['created_at'] > self._state_ttl]
+        for s in expired:
+            del self._states[s]
+
+
+oauth_state_store = OAuthStateStore()
 
 
 def generate_qr_code(uri: str) -> str:
@@ -66,7 +125,6 @@ async def get_device_code(request: Request):
         "state": "xxx"  # CSRF 防护
     }
     """
-    # 检查速率限制（每 IP 每分钟最多 5 次）
     is_allowed, retry_after = check_rate_limit(
         key=request.client.host if request.client else "unknown",
         max_requests=5,
@@ -85,10 +143,9 @@ async def get_device_code(request: Request):
     if not device_code:
         raise HTTPException(status_code=500, detail="无法请求设备码，请检查 GitHub OAuth 配置")
     
-    # 生成 CSRF state 参数
     state = secrets.token_urlsafe(32)
+    oauth_state_store.set(state, device_code.device_code)
     
-    # 生成二维码
     qr_uri = f"{device_code.verification_uri}?user_code={device_code.user_code}"
     qr_code = generate_qr_code(qr_uri)
     
@@ -130,7 +187,13 @@ async def get_access_token(
     HTTP 400 {"error": "authorization_pending"}
     """
     try:
-        # 潮询令牌
+        if state and not oauth_state_store.verify_and_consume(state, device_code):
+            logger.warning(f"CSRF state 验证失败：{state[:8] if state else 'None'}...")
+            raise HTTPException(
+                status_code=400,
+                detail="CSRF token 验证失败，请刷新页面重试"
+            )
+        
         access_token, error = await github_oauth.poll_access_token(device_code)
         
         if error == "authorization_pending":
@@ -182,20 +245,7 @@ async def get_access_token(
             )
         
         elif error:
-            # 其他错误
             raise HTTPException(status_code=400, detail=error)
-        
-        # 验证 CSRF state 参数（如果提供）
-        if state:
-            if not secrets.compare_digest(state, device_code.device_code.encode()):
-                logger.warning(f"CSRF state 验证失败：{state}")
-                raise HTTPException(
-                    status_code=400,
-                    detail="CSRF token 验证失败，请刷新页面重试"
-                )
-        
-        if not access_token:
-            raise HTTPException(status_code=500, detail="获取令牌失败")
         
         if not access_token:
             raise HTTPException(status_code=500, detail="获取令牌失败")
