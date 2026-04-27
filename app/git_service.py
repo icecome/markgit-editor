@@ -4,6 +4,7 @@ import shutil
 import logging
 import time
 import re
+import tempfile
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse
 
@@ -138,12 +139,22 @@ def safe_git_run(args: List[str], cache_path: str, oauth_session_id: Optional[st
     if is_clone:
         # 克隆命令不需要 cwd 存在
         if 'cwd' not in kwargs:
-            # 使用父目录，如果不存在则使用临时目录
-            parent_dir = os.path.dirname(args[-1]) if args[-1].startswith('/') else cache_path
-            if os.path.exists(parent_dir):
+            # 获取克隆目标目录
+            clone_target = args[-1]
+            
+            # 如果是绝对路径，使用其父目录
+            if os.path.isabs(clone_target):
+                parent_dir = os.path.dirname(clone_target)
+            else:
+                # 相对路径，基于 cache_path 计算父目录
+                parent_dir = os.path.dirname(os.path.abspath(os.path.join(cache_path, clone_target)))
+            
+            # 确保父目录存在
+            if parent_dir and os.path.exists(parent_dir):
                 kwargs['cwd'] = parent_dir
             else:
-                kwargs['cwd'] = '/tmp'
+                # 使用跨平台的临时目录
+                kwargs['cwd'] = tempfile.gettempdir()
     else:
         # 其他命令需要 cwd 存在
         kwargs['cwd'] = cache_path

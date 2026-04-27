@@ -532,6 +532,8 @@ body {
     margin-left: 280px; 
     min-height: calc(100vh - 64px); 
     transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+    display: flex;
+    flex-direction: column;
 }
 
 .main-content.expanded { 
@@ -539,9 +541,13 @@ body {
 }
 
 .content-area { 
-    padding: 24px; 
-    max-width: 1200px; 
-    margin: 0 auto; 
+    padding: 16px;
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .stats-row { 
@@ -610,10 +616,10 @@ body {
 
 .editor-container { 
     background: var(--bg-secondary); 
-    border-radius: var(--radius-lg); 
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    overflow: visible; 
-    height: calc(100vh - 160px); 
+    overflow: hidden; 
+    flex: 1;
     display: flex; 
     flex-direction: column;
     border: 1px solid var(--border-color);
@@ -661,14 +667,47 @@ body {
     overflow: visible; 
 }
 
+/* 确保 Vditor 占满所有空间 */
+#vditor {
+    flex: 1;
+    border: none !important;
+}
+
+#vditor .vditor {
+    border: none !important;
+}
+
+#vditor .vditor-toolbar {
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+#vditor .vditor-content {
+    flex: 1;
+    display: flex;
+    height: 100%;
+}
+
+#vditor .vditor-ir,
+#vditor .vditor-sv,
+#vditor .vditor-wysiwyg {
+    flex: 1;
+    height: 100%;
+}
+
+#vditor .vditor-preview {
+    flex: 1;
+    height: 100%;
+}
+
+#vditor .vditor-reset {
+    max-width: none;
+}
+
 .vditor-content { 
     overflow: hidden; 
     flex: 1; 
-}
-
-#vditor { 
-    height: 100%; 
-    border: none; 
 }
 
 .vditor-toolbar { 
@@ -1654,4 +1693,101 @@ body {
 .btn:disabled:hover {
     transform: none;
     box-shadow: none;
+}
+
+.vditor-outline {
+    display: none;
+}
+
+@media (min-width: 1024px) {
+    .vditor-outline {
+        display: block;
+    }
+}
+
+@media (max-width: 768px) {
+    .editor-actions {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    
+    .export-dropdown .btn span {
+        display: none;
+    }
+    
+    .export-menu {
+        right: -50px;
+        min-width: 140px;
+    }
+    
+    .word-count-badge {
+        font-size: 10px;
+        padding: 3px 8px;
+        margin-left: 8px;
+    }
+    
+    .vditor-toolbar {
+        padding: 6px 8px;
+    }
+    
+    .vditor-toolbar__item {
+        padding: 4px 6px;
+    }
+}
+
+@media (max-width: 640px) {
+    .editor-header {
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        gap: 8px;
+    }
+    
+    .editor-file-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .editor-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+    
+    .export-menu {
+        position: fixed;
+        top: auto;
+        bottom: 20px;
+        right: 20px;
+        left: 20px;
+        width: auto;
+    }
+}
+
+.vditor--dark .vditor-toolbar {
+    background: var(--bg-tertiary);
+    border-bottom-color: var(--border-color);
+}
+
+.vditor--dark .vditor-content {
+    background: var(--bg-secondary);
+}
+
+.vditor--dark .vditor-sv {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.vditor--dark .vditor-preview {
+    background: var(--bg-secondary);
+}
+
+.vditor-counter {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.typewriter-mode .vditor-ir pre.vditor-reset,
+.typewriter-mode .vditor-sv {
+    padding-top: 50vh;
+    padding-bottom: 50vh;
 }

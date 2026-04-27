@@ -19,7 +19,7 @@ try:
     sessions_path = os.path.join(BLOG_CACHE_PATH, '.sessions')
     if os.path.exists(sessions_path):
         subprocess.run(['git', 'rm', '-r', '--cached', sessions_path], 
-                      cwd=BASE_DIR, capture_output=True)
+                      cwd=str(BASE_DIR), capture_output=True)
 except Exception:
     pass
 

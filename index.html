@@ -8,8 +8,10 @@
     <script src="https://cdn.tailwindcss.com/3.4.1" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/lucide@0.344.0" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="https://unpkg.com/vditor@3.10.4/dist/index.css" crossorigin="anonymous">
-    <script src="https://unpkg.com/vditor@3.10.4/dist/index.min.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://unpkg.com/vditor@3.11.2/dist/index.css" crossorigin="anonymous">
+    <script src="https://unpkg.com/vditor@3.11.2/dist/index.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -20,7 +22,7 @@
         var cdnFallback = {
             'https://cdn.tailwindcss.com/3.4.1': 'https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/lib/index.min.js',
             'https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js': 'https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js',
-            'https://unpkg.com/vditor@3.10.4/dist/index.min.js': 'https://cdn.jsdelivr.net/npm/vditor@3.10.4/dist/index.min.js',
+            'https://unpkg.com/vditor@3.11.2/dist/index.min.js': 'https://cdn.jsdelivr.net/npm/vditor@3.11.2/dist/index.min.js',
             'https://unpkg.com/axios@1.6.7/dist/axios.min.js': 'https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js',
             'https://unpkg.com/dompurify@3.0.8/dist/purify.min.js': 'https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js'
         };
@@ -184,6 +186,66 @@
             border-top: 1px solid var(--border-color);
             margin: 12px 0;
         }
+        
+        .word-count-badge {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            background: var(--bg-tertiary);
+            padding: 4px 10px;
+            border-radius: var(--radius-full);
+            margin-left: 12px;
+            font-weight: 500;
+            border: 1px solid var(--border-color);
+        }
+        
+        .editor-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .export-dropdown {
+            position: relative;
+        }
+        
+        .export-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg);
+            min-width: 160px;
+            z-index: 100;
+            padding: 6px;
+        }
+        
+        .export-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            color: var(--text-secondary);
+            transition: all 0.15s ease;
+        }
+        
+        .export-menu-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--accent-color);
+        }
+        
+        .export-menu-item i {
+            color: var(--text-tertiary);
+        }
+        
+        .export-menu-item:hover i {
+            color: var(--accent-color);
+        }
     </style>
 </head>
 <body>
@@ -302,36 +364,6 @@
 
         <div class="main-content" :class="{ 'expanded': sidebarCollapsed }">
             <div class="content-area">
-                <div class="stats-row">
-                    <div class="stat-card">
-                        <div class="stat-icon blue">
-                            <i data-lucide="file-text" style="width: 24px; height: 24px;"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3>{{ fileCount }}</h3>
-                            <p>文件总数</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon green">
-                            <i data-lucide="folder" style="width: 24px; height: 24px;"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3>{{ folderCount }}</h3>
-                            <p>文件夹</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon purple">
-                            <i data-lucide="git-commit" style="width: 24px; height: 24px;"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3>{{ changes.length }}</h3>
-                            <p>待提交</p>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="editor-container">
                     <div v-if="!editingFilePath" class="empty-state">
                         <i data-lucide="file-text" style="width: 48px; height: 48px;"></i>
@@ -344,11 +376,40 @@
                                 <i data-lucide="file-text" style="width: 16px; height: 16px; color: #3b82f6;"></i>
                                 <span class="editor-file-path">{{ editingFilePath }}</span>
                                 <span v-if="hasUnsavedChanges" class="unsaved-indicator">● 未保存</span>
+                                <span class="word-count-badge" v-if="wordCount.chars > 0">
+                                    {{ wordCount.chars }} 字符 · {{ wordCount.lines }} 行
+                                </span>
                             </div>
-                            <button class="btn btn-sm btn-success" @click="saveFile()" :disabled="saving">
-                                <i data-lucide="save" style="width: 12px; height: 12px;"></i>
-                                <span>{{ saving ? '保存中...' : '保存' }}</span>
-                            </button>
+                            <div class="editor-actions">
+                                <div class="export-dropdown">
+                                    <button class="btn btn-sm btn-secondary" @click="toggleExportMenu" title="导出">
+                                        <i data-lucide="download" style="width: 12px; height: 12px;"></i>
+                                        <span>导出</span>
+                                    </button>
+                                    <div class="export-menu" v-show="showExportMenu">
+                                        <div class="export-menu-item" @click="exportAs('pdf')">
+                                            <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                                            <span>导出 PDF</span>
+                                        </div>
+                                        <div class="export-menu-item" @click="exportAs('png')">
+                                            <i data-lucide="image" style="width: 14px; height: 14px;"></i>
+                                            <span>导出 PNG</span>
+                                        </div>
+                                        <div class="export-menu-item" @click="exportAs('jpeg')">
+                                            <i data-lucide="image" style="width: 14px; height: 14px;"></i>
+                                            <span>导出 JPEG</span>
+                                        </div>
+                                        <div class="export-menu-item" @click="exportAs('html')">
+                                            <i data-lucide="code" style="width: 14px; height: 14px;"></i>
+                                            <span>导出 HTML</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-success" @click="saveFile()" :disabled="saving">
+                                    <i data-lucide="save" style="width: 12px; height: 12px;"></i>
+                                    <span>{{ saving ? '保存中...' : '保存' }}</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="editor-content">
                             <div id="vditor"></div>

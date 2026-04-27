@@ -210,7 +210,11 @@ if (typeof Vue !== 'undefined') {
                 excludePatterns: localStorage.getItem('excludePatterns') || '',
                 simplePatterns: localStorage.getItem('simplePatterns') || '',
                 useWhitelist: localStorage.getItem('useWhitelist') === 'true',
-                whitelistExceptions: localStorage.getItem('whitelistExceptions') || ''
+                whitelistExceptions: localStorage.getItem('whitelistExceptions') || '',
+                wordCount: { chars: 0, words: 0, lines: 0 },
+                exportFormat: 'pdf',
+                exporting: false,
+                showExportMenu: false
             };
         },
         computed: {
@@ -1012,40 +1016,276 @@ if (typeof Vue !== 'undefined') {
                 if (this.contentEditor) this.contentEditor.destroy();
                 const vditorTheme = this.currentMode === 'dark' ? 'dark' : 'classic';
                 const self = this;
+                const isMobile = window.innerWidth <= 768;
+                
                 this.contentEditor = new Vditor('vditor', {
-                    height: '100%', 
-                    toolbarConfig: { pin: true }, 
+                    height: '100%',
+                    width: '100%',
+                    tab: '\t',
+                    counter: {
+                        enable: true,
+                        type: 'markdown'
+                    },
+                    typewriterMode: true,
+                    outline: {
+                        enable: true,
+                        position: 'left'
+                    },
+                    toolbarConfig: { 
+                        pin: true,
+                        hide: false
+                    },
                     cache: { enable: false },
                     theme: vditorTheme,
-                    preview: { 
-                        markdown: { 
-                            linkBase: filePath.substring(0, filePath.lastIndexOf('/')) 
-                        }, 
-                        theme: { 
-                            current: vditorTheme 
-                        } 
+                    icon: 'material',
+                    preview: {
+                        delay: 100,
+                        show: !isMobile,
+                        markdown: {
+                            toc: true,
+                            mark: true,
+                            footnotes: true,
+                            autoSpace: true,
+                            linkBase: filePath.substring(0, filePath.lastIndexOf('/'))
+                        },
+                        theme: {
+                            current: vditorTheme
+                        },
+                        hljs: {
+                            enable: true,
+                            lineNumber: true,
+                            style: vditorTheme === 'dark' ? 'native' : 'github'
+                        }
                     },
-                    hljs: { lineNumber: true },
-                    input: () => { 
-                        self.hasUnsavedChanges = true; 
-                        if (self.autoSaveTimer) clearTimeout(self.autoSaveTimer); 
-                        self.autoSaveTimer = setTimeout(() => { self.saveFile(); }, 3000); 
+                    hljs: {
+                        enable: true,
+                        lineNumber: true,
+                        style: vditorTheme === 'dark' ? 'native' : 'github'
+                    },
+                    hint: {
+                        parse: false,
+                        emoji: {
+                            'smile': '😊',
+                            'laugh': '😄',
+                            'wink': '😉',
+                            'heart': '❤️',
+                            'star': '⭐',
+                            'check': '✅',
+                            'cross': '❌',
+                            'rocket': '🚀',
+                            'fire': '🔥',
+                            'thumbsup': '👍'
+                        }
+                    },
+                    upload: {
+                        max: 5 * 1024 * 1024,
+                        accept: '.jpg,.jpeg,.png,.gif,.webp,.svg,.bmp',
+                        handler: (files) => {
+                            self.handleImageUpload(files);
+                        }
+                    },
+                    input: (value) => {
+                        self.hasUnsavedChanges = true;
+                        self.updateWordCount(value);
+                        if (self.autoSaveTimer) clearTimeout(self.autoSaveTimer);
+                        self.autoSaveTimer = setTimeout(() => { self.saveFile(); }, 3000);
                     },
                     mode: this.editorMode,
-                    after: () => { 
-                        self.contentEditor.setValue(rawContent); 
+                    after: () => {
+                        self.contentEditor.setValue(rawContent);
                         self.lastSavedContent = rawContent;
-                        // 编辑器创建完成后渲染图标
+                        self.updateWordCount(rawContent);
                         self.$nextTick(() => {
                             IconRenderer.render();
                         });
                     }
                 });
                 
-                // 额外渲染一次，确保保存按钮等图标显示
                 this.$nextTick(() => {
                     IconRenderer.render();
                 });
+            },
+            updateWordCount(content) {
+                if (!content) {
+                    this.wordCount = { chars: 0, words: 0, lines: 0 };
+                    return;
+                }
+                const chars = content.length;
+                const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+                const lines = content.split('\n').length;
+                this.wordCount = { chars, words, lines };
+            },
+            toggleExportMenu() {
+                this.showExportMenu = !this.showExportMenu;
+                this.$nextTick(() => IconRenderer.render());
+            },
+            async exportAs(format) {
+                this.showExportMenu = false;
+                if (!this.contentEditor) {
+                    this.showToast('请先打开一个文件', 'error');
+                    return;
+                }
+                
+                this.exporting = true;
+                this.showToast('正在准备导出...', 'info');
+                
+                try {
+                    const content = this.contentEditor.getValue();
+                    const filename = this.editingFilePath.split('/').pop().replace(/\.[^/.]+$/, '') || 'document';
+                    
+                    if (format === 'html') {
+                        this.exportAsHtml(content, filename);
+                    } else if (format === 'pdf') {
+                        await this.exportAsPdf(filename);
+                    } else if (format === 'png' || format === 'jpeg') {
+                        await this.exportAsImage(filename, format);
+                    }
+                    
+                    this.showToast('导出成功！', 'success');
+                } catch (error) {
+                    console.error('导出失败:', error);
+                    this.showToast('导出失败: ' + error.message, 'error');
+                } finally {
+                    this.exporting = false;
+                    this.$nextTick(() => IconRenderer.render());
+                }
+            },
+            exportAsHtml(content, filename) {
+                const htmlContent = this.contentEditor.getHTML();
+                const fullHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${filename}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
+        blockquote { border-left: 4px solid #ddd; margin: 0; padding-left: 15px; color: #666; }
+        img { max-width: 100%; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+${htmlContent}
+</body>
+</html>`;
+                
+                const blob = new Blob([fullHtml], { type: 'text/html' });
+                this.downloadBlob(blob, `${filename}.html`);
+            },
+            async exportAsPdf(filename) {
+                if (typeof html2pdf === 'undefined') {
+                    throw new Error('PDF 导出库未加载，请刷新页面重试');
+                }
+                
+                const element = document.querySelector('.vditor-preview') || document.querySelector('.vditor-sv');
+                if (!element) {
+                    throw new Error('无法找到导出内容');
+                }
+                
+                const opt = {
+                    margin: [10, 10, 10, 10],
+                    filename: `${filename}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { 
+                        scale: 2,
+                        useCORS: true,
+                        logging: false
+                    },
+                    jsPDF: { 
+                        unit: 'mm', 
+                        format: 'a4', 
+                        orientation: 'portrait' 
+                    }
+                };
+                
+                await html2pdf().set(opt).from(element).save();
+            },
+            async exportAsImage(filename, format) {
+                if (typeof html2canvas === 'undefined') {
+                    throw new Error('图片导出库未加载，请刷新页面重试');
+                }
+                
+                const element = document.querySelector('.vditor-preview') || document.querySelector('.vditor-sv');
+                if (!element) {
+                    throw new Error('无法找到导出内容');
+                }
+                
+                const canvas = await html2canvas(element, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    logging: false
+                });
+                
+                const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+                canvas.toBlob((blob) => {
+                    this.downloadBlob(blob, `${filename}.${format}`);
+                }, mimeType, 0.95);
+            },
+            downloadBlob(blob, filename) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            },
+            async handleImageUpload(files) {
+                if (!files || files.length === 0) return;
+                
+                const file = files[0];
+                if (file.size > 5 * 1024 * 1024) {
+                    this.showToast('图片大小不能超过 5MB', 'error');
+                    return;
+                }
+                
+                const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'];
+                if (!allowedTypes.includes(file.type)) {
+                    this.showToast('不支持的图片格式', 'error');
+                    return;
+                }
+                
+                this.showToast('正在上传图片...', 'info');
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const uploadPath = this.currentDirectory ? `${this.currentDirectory}/images` : 'images';
+                    formData.append('file_path', `${uploadPath}/${file.name}`);
+                    
+                    const response = await axios.post('/api/file/upload', formData, {
+                        headers: {
+                            ...this.getHeaders(),
+                            'Content-Type': 'multipart/form-data'
+                        }
+                    });
+                    
+                    const imagePath = response.data.data?.path || `${uploadPath}/${file.name}`;
+                    const markdownImage = `![${file.name}](${imagePath})`;
+                    
+                    if (this.contentEditor) {
+                        this.contentEditor.insertValue(markdownImage);
+                    }
+                    
+                    this.showToast('图片上传成功', 'success');
+                    await this.getFiles();
+                } catch (error) {
+                    console.error('图片上传失败:', error);
+                    this.showToast('图片上传失败: ' + (error.response?.data?.detail || error.message), 'error');
+                }
             },
             errorHandler(error) {
                 console.error(error);
@@ -1116,11 +1356,15 @@ if (typeof Vue !== 'undefined') {
             if (this.currentMode === 'dark') {
                 document.documentElement.setAttribute('data-mode', 'dark');
             }
-            this._clickHandler = () => { this.hideContextMenu(); };
+            this._clickHandler = (e) => {
+                this.hideContextMenu();
+                if (this.showExportMenu && !e.target.closest('.export-dropdown')) {
+                    this.showExportMenu = false;
+                }
+            };
             document.addEventListener('click', this._clickHandler);
             await this.$nextTick();
             
-            // 初始化图标观察器
             if (typeof IconRenderer !== 'undefined' && IconRenderer.initObserver) {
                 IconRenderer.initObserver();
             }
@@ -1129,7 +1373,6 @@ if (typeof Vue !== 'undefined') {
             await this.createOrUseSession();
             await this.initApp();
             
-            // 初始化 OAuth 组件
             if (typeof oauth !== 'undefined') {
                 console.log('Initializing OAuth component...');
                 oauth.init();
